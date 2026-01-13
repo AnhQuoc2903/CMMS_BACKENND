@@ -1,9 +1,11 @@
+// models/WorkOrder.js
 const mongoose = require("mongoose");
 
 module.exports = mongoose.model(
   "WorkOrder",
   new mongoose.Schema(
     {
+      /* ===== BASIC INFO ===== */
       title: {
         type: String,
         required: true,
@@ -11,14 +13,47 @@ module.exports = mongoose.model(
 
       description: String,
 
-      // 👤 ai tạo work order
+      /* ===== CREATOR ===== */
       createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
         required: true,
       },
 
-      // 👷 kỹ thuật viên được giao (NHIỀU)
+      /* ===== STATUS ===== */
+      status: {
+        type: String,
+        enum: [
+          "OPEN",
+          "PENDING_APPROVAL",
+          "APPROVED",
+          "ASSIGNED",
+          "IN_PROGRESS",
+          "COMPLETED",
+          "CLOSED",
+          "REJECTED",
+        ],
+        default: "OPEN",
+      },
+
+      /* ===== APPROVAL ===== */
+      approval: {
+        approvedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        approvedAt: Date,
+
+        rejectedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        rejectedAt: Date,
+
+        rejectReason: String,
+      },
+
+      /* ===== ASSIGNMENT ===== */
       assignedTechnicians: [
         {
           type: mongoose.Schema.Types.ObjectId,
@@ -26,17 +61,21 @@ module.exports = mongoose.model(
         },
       ],
 
-      status: {
-        type: String,
-        enum: ["OPEN", "IN_PROGRESS", "DONE"],
-        default: "OPEN",
-      },
+      assignedAssets: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Asset",
+        },
+      ],
 
+      assignedAt: Date,
+
+      /* ===== EXECUTION ===== */
       checklist: {
         type: [
           {
             title: String,
-            isDone: Boolean,
+            isDone: { type: Boolean, default: false },
           },
         ],
         default: [],
@@ -51,13 +90,19 @@ module.exports = mongoose.model(
         url: String,
       },
 
-      // 🧰 asset dùng cho work order
-      assignedAssets: [
-        {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "Asset",
-        },
-      ],
+      completedAt: Date,
+
+      /* ===== CLOSURE ===== */
+      closedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+      tenantRequest: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "TenantRequest",
+      },
+
+      closedAt: Date,
     },
     { timestamps: true }
   )

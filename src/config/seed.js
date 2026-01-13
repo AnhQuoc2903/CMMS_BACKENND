@@ -3,33 +3,43 @@ const ROLES = require("../config/roles");
 const Asset = require("../models/Asset");
 
 module.exports = async () => {
-  /* ================= ADMIN ================= */
-  const adminExists = await User.findOne({ role: ROLES.ADMIN });
+  /* ================= USERS ================= */
 
-  if (!adminExists) {
-    await User.create({
+  const users = [
+    {
       name: "Admin",
       email: "admin@cmms.com",
       password: "123456",
       role: ROLES.ADMIN,
-    });
-    console.log("✅ Admin seeded");
-  }
-
-  /* ================= TECHNICIAN ================= */
-  const techExists = await User.findOne({ role: ROLES.TECHNICIAN });
-
-  if (!techExists) {
-    await User.create({
+    },
+    {
+      name: "Manager",
+      email: "manager@cmms.com",
+      password: "123456",
+      role: ROLES.MANAGER,
+    },
+    {
       name: "Technician A",
       email: "tech@cmms.com",
       password: "123456",
       role: ROLES.TECHNICIAN,
-    });
-    console.log("✅ Technician seeded");
+      status: "ACTIVE",
+    },
+  ];
+
+  for (const u of users) {
+    const exists = await User.findOne({ email: u.email });
+
+    if (!exists) {
+      await User.create(u);
+      console.log(`✅ ${u.role} seeded (${u.email})`);
+    } else {
+      console.log(`ℹ️ ${u.role} already exists (${u.email})`);
+    }
   }
 
   /* ================= ASSETS ================= */
+
   const assetCount = await Asset.countDocuments();
 
   if (assetCount === 0) {
@@ -49,5 +59,7 @@ module.exports = async () => {
     ]);
 
     console.log("✅ Assets seeded");
+  } else {
+    console.log("ℹ️ Assets already exist");
   }
 };

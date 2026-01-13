@@ -21,5 +21,10 @@ app.use("/api/inventory", require("./routes/inventory.routes"));
 app.use("/api/work-orders", require("./routes/workOrder.routes"));
 app.use("/api/tenant", require("./routes/tenant.routes"));
 app.use("/api/users", require("./routes/user.routes"));
+app.use("/api/audit", require("./routes/audit.routes"));
+app.use(
+  "/api/checklist-templates",
+  require("./routes/checklistTemplate.route")
+);
 
 module.exports = app;

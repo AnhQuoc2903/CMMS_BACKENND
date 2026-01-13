@@ -1,6 +1,6 @@
-const User = require("../models/User"); // ✅ BẠN ĐANG THIẾU DÒNG NÀY
+const User = require("../models/User");
 const ROLES = require("../config/roles");
-// user.controller.js
+const AuditLog = require("../models/AuditLog");
 
 exports.getTechnicians = async (req, res) => {
   const techs = await User.find({ role: "TECHNICIAN" }, "name email status");
@@ -56,5 +56,41 @@ exports.enableTechnician = async (req, res) => {
     { status: "ACTIVE" },
     { new: true }
   );
+  res.json(user);
+};
+
+exports.disableTechnician = async (req, res) => {
+  const techId = req.params.id;
+
+  const user = await User.findByIdAndUpdate(
+    techId,
+    { status: "INACTIVE" },
+    { new: true }
+  );
+
+  await AuditLog.create({
+    actor: req.user.id, // admin đang login
+    target: techId, // technician bị disable
+    action: "DISABLE_TECHNICIAN",
+  });
+
+  res.json(user);
+};
+
+exports.enableTechnician = async (req, res) => {
+  const techId = req.params.id;
+
+  const user = await User.findByIdAndUpdate(
+    techId,
+    { status: "ACTIVE" },
+    { new: true }
+  );
+
+  await AuditLog.create({
+    actor: req.user.id,
+    target: techId,
+    action: "ENABLE_TECHNICIAN",
+  });
+
   res.json(user);
 };
