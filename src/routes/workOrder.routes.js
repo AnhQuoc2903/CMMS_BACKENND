@@ -9,6 +9,13 @@ r.get("/", auth, c.getAll);
 
 r.post("/", auth, requireRole("ADMIN", "MANAGER"), c.create);
 
+r.patch(
+  "/:id/priority",
+  auth,
+  requireRole("ADMIN", "MANAGER"),
+  c.updatePriority
+);
+
 r.get("/:id", auth, c.getDetail);
 
 r.patch("/:id/checklist", auth, c.updateChecklist);
@@ -50,6 +57,20 @@ r.post(
   auth,
   requireRole("ADMIN", "MANAGER"),
   c.applyChecklistTemplate
+);
+
+r.patch("/:id/review", auth, requireRole("MANAGER"), c.reviewWorkOrder);
+
+r.patch("/:id/verify", auth, requireRole("ADMIN"), c.verifyWorkOrder);
+
+r.patch("/:id/review-reject", auth, requireRole("MANAGER"), c.rejectReview);
+
+r.patch("/:id/verify-reject", auth, requireRole("ADMIN"), c.rejectVerification);
+r.get(
+  "/:id/my-history",
+  auth,
+  requireRole("TECHNICIAN"),
+  c.getMyWorkOrderHistory
 );
 
 module.exports = r;

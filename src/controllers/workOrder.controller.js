@@ -6,7 +6,14 @@ const AssetLog = require("../models/AssetLog");
 const Asset = require("../models/Asset");
 const mongoose = require("mongoose");
 const ChecklistTemplate = require("../models/ChecklistTemplate");
+const WorkOrderHistory = require("../models/WorkOrderHistory");
 
+const PRIORITY_SLA = {
+  CRITICAL: 2,
+  HIGH: 8,
+  MEDIUM: 24,
+  LOW: 72,
+};
 /* ======================================================
    GET ALL
 ====================================================== */
@@ -17,7 +24,7 @@ exports.getAll = async (req, res) => {
   if (role === "TECHNICIAN") {
     query = {
       assignedTechnicians: id,
-      status: { $in: ["ASSIGNED", "IN_PROGRESS", "COMPLETED"] },
+      status: { $in: ["ASSIGNED", "IN_PROGRESS"] },
     };
   }
 
@@ -29,12 +36,48 @@ exports.getAll = async (req, res) => {
    CREATE
 ====================================================== */
 exports.create = async (req, res) => {
+  const priority = req.body.priority || "MEDIUM";
+  const slaHours = PRIORITY_SLA[priority];
+
   const wo = await WorkOrder.create({
     ...req.body,
+    priority,
+    slaHours,
+    dueAt: new Date(Date.now() + slaHours * 60 * 60 * 1000),
     createdBy: req.user.id,
     status: "OPEN",
   });
 
+  res.json(wo);
+};
+
+/* ======================================================
+   UPDATE PRIORITY
+====================================================== */
+exports.updatePriority = async (req, res) => {
+  const { priority } = req.body;
+
+  if (!["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(priority)) {
+    return res.status(400).json({ message: "Invalid priority" });
+  }
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  // ❗ Chỉ cho đổi khi WO CHƯA CHẠY
+  if (!["OPEN", "PENDING_APPROVAL", "APPROVED"].includes(wo.status)) {
+    return res.status(400).json({
+      message: "Cannot change priority at this stage",
+    });
+  }
+
+  const slaHours = PRIORITY_SLA[priority];
+
+  wo.priority = priority;
+  wo.slaHours = slaHours;
+  wo.dueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+
+  await wo.save();
   res.json(wo);
 };
 
@@ -141,15 +184,6 @@ exports.assignTechnicians = async (req, res) => {
     (id) => new mongoose.Types.ObjectId(id)
   );
 
-  // ✅ CHỈ chuyển ASSIGNED khi có technician
-  if (wo.assignedTechnicians.length > 0) {
-    wo.status = "ASSIGNED";
-
-    if (!wo.assignedAt) {
-      wo.assignedAt = new Date();
-    }
-  }
-
   await wo.save();
   res.json(wo);
 };
@@ -228,6 +262,13 @@ exports.startWorkOrder = async (req, res) => {
     });
   }
 
+  // trong startWorkOrder
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "START",
+    performedBy: req.user.id,
+  });
+
   // 5️⃣ OK → START
   wo.status = "IN_PROGRESS";
   await wo.save();
@@ -289,6 +330,7 @@ exports.uploadPhoto = async (req, res) => {
   }
 
   wo.photos.push({ url: req.file.path });
+
   await wo.save();
   res.json({ success: true });
 };
@@ -345,8 +387,10 @@ exports.closeWorkOrder = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id);
   if (!wo) return res.status(404).json({ message: "Not found" });
 
-  if (wo.status !== "COMPLETED") {
-    return res.status(400).json({ message: "Not completed" });
+  if (wo.status !== "VERIFIED") {
+    return res.status(400).json({
+      message: "Work order must be VERIFIED before closing",
+    });
   }
 
   wo.status = "CLOSED";
@@ -366,7 +410,7 @@ exports.exportPDF = async (req, res) => {
     return res.status(404).json({ message: "Work order not found" });
   }
 
-  if (!["COMPLETED", "CLOSED"].includes(wo.status)) {
+  if (!["COMPLETED", "VERIFIED", "CLOSED"].includes(wo.status)) {
     return res.status(400).json({
       message: "PDF is only available after completion",
     });
@@ -509,4 +553,135 @@ exports.applyChecklistTemplate = async (req, res) => {
 
   await wo.save();
   res.json(wo);
+};
+
+exports.reviewWorkOrder = async (req, res) => {
+  const { note } = req.body;
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (wo.status !== "COMPLETED") {
+    return res.status(400).json({ message: "Not completed yet" });
+  }
+
+  wo.status = "REVIEWED";
+  wo.review = {
+    reviewedBy: req.user.id,
+    reviewedAt: new Date(),
+    note,
+  };
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.verifyWorkOrder = async (req, res) => {
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (wo.status !== "REVIEWED") {
+    return res.status(400).json({ message: "Not reviewed yet" });
+  }
+
+  wo.status = "VERIFIED";
+  wo.verification = {
+    verifiedBy: req.user.id,
+    verifiedAt: new Date(),
+  };
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.rejectReview = async (req, res) => {
+  const { reason } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({ message: "Reject reason required" });
+  }
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (wo.status !== "REVIEWED") {
+    return res.status(400).json({ message: "Not reviewed yet" });
+  }
+
+  wo.status = "IN_PROGRESS";
+  wo.reviewRejections.push({
+    rejectedBy: req.user.id,
+    rejectedAt: new Date(),
+    reason,
+  });
+
+  // ❗ reset signature để bắt ký lại
+  wo.signature = undefined;
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "REWORK",
+    performedBy: req.user.id, // hoặc từng tech nếu nhiều
+    note: reason,
+  });
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.rejectVerification = async (req, res) => {
+  const { reason } = req.body;
+
+  if (!reason) {
+    return res.status(400).json({ message: "Reject reason required" });
+  }
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (wo.status !== "VERIFIED") {
+    return res.status(400).json({ message: "Not verified yet" });
+  }
+
+  wo.status = "IN_PROGRESS";
+  wo.verificationRejections.push({
+    rejectedBy: req.user.id,
+    rejectedAt: new Date(),
+    reason,
+  });
+
+  wo.signature = undefined;
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "REWORK",
+    performedBy: req.user.id,
+    note: reason,
+  });
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.getMyWorkOrderHistory = async (req, res) => {
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  // 🔐 chỉ technician được assign mới xem
+  const isAssigned = wo.assignedTechnicians.some(
+    (t) => t.toString() === req.user.id
+  );
+
+  if (!isAssigned) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  const history = await WorkOrderHistory.find({
+    workOrder: wo._id,
+    $or: [{ performedBy: req.user.id }, { action: "REWORK" }],
+  })
+    .populate("performedBy", "name role email")
+    .sort({ createdAt: -1 });
+
+  res.json(history);
 };

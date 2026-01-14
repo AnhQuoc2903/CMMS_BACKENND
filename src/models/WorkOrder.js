@@ -30,11 +30,66 @@ module.exports = mongoose.model(
           "ASSIGNED",
           "IN_PROGRESS",
           "COMPLETED",
+          "REVIEWED", // 👈 supervisor
+          "VERIFIED",
           "CLOSED",
           "REJECTED",
         ],
         default: "OPEN",
       },
+
+      priority: {
+        type: String,
+        enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+        default: "MEDIUM",
+      },
+
+      slaHours: {
+        type: Number,
+      },
+
+      dueAt: {
+        type: Date,
+      },
+
+      review: {
+        reviewedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        reviewedAt: Date,
+        note: String,
+      },
+
+      reviewRejections: [
+        {
+          rejectedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+          },
+          rejectedAt: Date,
+          reason: String,
+        },
+      ],
+
+      verification: {
+        verifiedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+        verifiedAt: Date,
+      },
+
+      verificationRejections: [
+        {
+          rejectedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+          },
+          rejectedAt: Date,
+          reason: String,
+        },
+      ],
 
       /* ===== APPROVAL ===== */
       approval: {
