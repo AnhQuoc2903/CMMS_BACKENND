@@ -27,5 +27,6 @@ app.use(
   require("./routes/checklistTemplate.route")
 );
 app.use("/api/inventory-logs", require("./routes/inventoryLog.routes"));
+app.use("/api/maintenance-plans", require("./routes/maintenancePlan.routes"));
 
 module.exports = app;

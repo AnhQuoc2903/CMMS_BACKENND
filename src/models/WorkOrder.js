@@ -145,6 +145,11 @@ module.exports = mongoose.model(
         url: String,
       },
 
+      maintenancePlan: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "MaintenancePlan",
+      },
+
       // ===== INVENTORY USAGE =====
       usedParts: [
         {

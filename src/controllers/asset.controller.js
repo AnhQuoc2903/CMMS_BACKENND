@@ -1,5 +1,6 @@
 const Asset = require("../models/Asset");
 const AssetLog = require("../models/AssetLog");
+const WorkOrder = require("../models/WorkOrder");
 
 exports.create = (req, res) => Asset.create(req.body).then((r) => res.json(r));
 
@@ -73,4 +74,17 @@ exports.maintain = async (req, res) => {
   });
 
   res.json(asset);
+};
+
+exports.getPMHistory = async (req, res) => {
+  const assetId = req.params.id;
+
+  const workOrders = await WorkOrder.find({
+    assignedAssets: assetId,
+    maintenancePlan: { $ne: null },
+  })
+    .populate("maintenancePlan", "name frequency")
+    .sort({ createdAt: -1 });
+
+  res.json(workOrders);
 };

@@ -11,6 +11,8 @@ r.delete("/:id", auth, c.remove); // ✅ DELETE
 
 r.get("/:id/history", auth, c.getHistory);
 r.patch("/:id/maintain", auth, c.maintain);
+
+r.get("/:id/pm-history", auth, c.getPMHistory);
 // ✅ LOGS
 
 module.exports = r;

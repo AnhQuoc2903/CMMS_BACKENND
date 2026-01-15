@@ -124,7 +124,8 @@ exports.getDetail = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id)
     .populate("assignedAssets", "name code status")
     .populate("assignedTechnicians", "name email status")
-    .populate("usedParts.part", "name quantity status");
+    .populate("usedParts.part", "name quantity status")
+    .populate("maintenancePlan", "name frequency");
 
   if (!wo) return res.status(404).json({ message: "Work order not found" });
   res.json(wo);
@@ -469,6 +470,20 @@ exports.closeWorkOrder = async (req, res) => {
   if (wo.status !== "VERIFIED") {
     return res.status(400).json({
       message: "Work order must be VERIFIED before closing",
+    });
+  }
+
+  // 🔁 TRẢ ASSET VỀ AVAILABLE
+  for (const assetId of wo.assignedAssets) {
+    await Asset.findByIdAndUpdate(assetId, {
+      status: "AVAILABLE",
+    });
+
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "AVAILABLE",
+      performedBy: req.user.id,
     });
   }
 
