@@ -942,3 +942,103 @@ exports.updateUsedParts = async (req, res) => {
 
   res.json(populated);
 };
+
+exports.cancelWorkOrder = async (req, res) => {
+  const { reason } = req.body;
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (["CLOSED", "CANCELLED"].includes(wo.status)) {
+    return res.status(400).json({ message: "Cannot cancel" });
+  }
+
+  // 🔁 1. ROLLBACK INVENTORY (nếu đã xuất kho)
+  await rollbackUsedParts(wo, req.user.id);
+
+  // 🔁 2. TRẢ ASSET VỀ AVAILABLE
+  for (const assetId of wo.assignedAssets || []) {
+    await Asset.findByIdAndUpdate(assetId, { status: "AVAILABLE" });
+
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "AVAILABLE",
+      performedBy: req.user.id,
+    });
+  }
+
+  // 🧾 3. GHI WORK ORDER HISTORY
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "CANCEL",
+    note: reason,
+    performedBy: req.user.id,
+  });
+
+  // ❌ 4. UPDATE WORK ORDER
+  wo.status = "CANCELLED";
+  wo.cancelReason = reason;
+  wo.cancelledAt = new Date();
+  wo.cancelledBy = req.user.id;
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.holdWorkOrder = async (req, res) => {
+  const { reason } = req.body;
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (!["ASSIGNED", "IN_PROGRESS"].includes(wo.status)) {
+    return res.status(400).json({ message: "Cannot hold" });
+  }
+
+  wo.status = "ON_HOLD";
+  wo.holdReason = reason;
+  wo.holdAt = new Date();
+
+  wo.slaPausedAt = new Date();
+
+  // 🧾 AUDIT TIMELINE
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "HOLD",
+    note: reason,
+    performedBy: req.user.id,
+  });
+
+  await wo.save();
+  res.json(wo);
+};
+
+exports.resumeWorkOrder = async (req, res) => {
+  const wo = await WorkOrder.findById(req.params.id);
+
+  if (wo.status !== "ON_HOLD") {
+    return res.status(400).json({ message: "Not on hold" });
+  }
+
+  wo.status = "IN_PROGRESS";
+
+  if (wo.slaPausedAt) {
+    const pausedMs = Date.now() - wo.slaPausedAt.getTime();
+    wo.slaPausedTotal = (wo.slaPausedTotal || 0) + pausedMs;
+    wo.slaPausedAt = null;
+
+    wo.slaDueAt = new Date(wo.slaDueAt.getTime() + pausedMs);
+  }
+
+  // 🧾 AUDIT
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "RESUME",
+    note: "Work resumed",
+    performedBy: req.user.id,
+  });
+
+  await wo.save();
+  res.json(wo);
+};

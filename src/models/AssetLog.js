@@ -15,7 +15,7 @@ module.exports = mongoose.model(
       },
       action: {
         type: String,
-        enum: ["ASSIGNED", "UNASSIGNED", "MAINTAINED"],
+        enum: ["ASSIGNED", "UNASSIGNED", "MAINTAINED", "AVAILABLE"],
         required: true,
       },
       note: String,

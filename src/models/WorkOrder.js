@@ -29,11 +29,13 @@ module.exports = mongoose.model(
           "APPROVED",
           "ASSIGNED",
           "IN_PROGRESS",
+          "ON_HOLD",
           "COMPLETED",
           "REVIEWED",
           "VERIFIED",
           "CLOSED",
           "REJECTED",
+          "CANCELLED",
         ],
         default: "OPEN",
       },
@@ -50,6 +52,21 @@ module.exports = mongoose.model(
 
       dueAt: {
         type: Date,
+      },
+
+      holdReason: {
+        type: String,
+        trim: true,
+      },
+
+      holdAt: {
+        type: Date,
+      },
+
+      slaPausedAt: Date,
+      slaPausedTotal: {
+        type: Number,
+        default: 0,
       },
 
       review: {

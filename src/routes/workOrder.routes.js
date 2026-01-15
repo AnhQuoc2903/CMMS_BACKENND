@@ -75,4 +75,18 @@ r.get(
 
 r.patch("/:id/used-parts", auth, requireRole("TECHNICIAN"), c.updateUsedParts);
 
+r.post("/:id/cancel", auth, requireRole("ADMIN", "MANAGER"), c.cancelWorkOrder);
+r.post(
+  "/:id/hold",
+  auth,
+  requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
+  c.holdWorkOrder
+);
+r.post(
+  "/:id/resume",
+  auth,
+  requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
+  c.resumeWorkOrder
+);
+
 module.exports = r;

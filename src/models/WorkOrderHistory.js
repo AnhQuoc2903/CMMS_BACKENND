@@ -9,7 +9,22 @@ const WorkOrderHistorySchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ["START", "CHECKLIST_UPDATE", "UPLOAD_PHOTO", "SIGNED", "REWORK"],
+      enum: [
+        "CREATE",
+        "SUBMIT",
+        "APPROVE",
+        "REJECT",
+        "ASSIGN",
+        "START",
+        "HOLD",
+        "RESUME",
+        "REWORK",
+        "COMPLETE",
+        "REVIEW",
+        "VERIFY",
+        "CLOSE",
+        "CANCEL",
+      ],
       required: true,
     },
     performedBy: {
