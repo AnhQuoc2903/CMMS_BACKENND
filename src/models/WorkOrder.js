@@ -30,7 +30,7 @@ module.exports = mongoose.model(
           "ASSIGNED",
           "IN_PROGRESS",
           "COMPLETED",
-          "REVIEWED", // 👈 supervisor
+          "REVIEWED",
           "VERIFIED",
           "CLOSED",
           "REJECTED",
@@ -144,6 +144,22 @@ module.exports = mongoose.model(
       signature: {
         url: String,
       },
+
+      // ===== INVENTORY USAGE =====
+      usedParts: [
+        {
+          part: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "SparePart",
+            required: true,
+          },
+          quantity: {
+            type: Number,
+            required: true,
+            min: 1,
+          },
+        },
+      ],
 
       completedAt: Date,
 

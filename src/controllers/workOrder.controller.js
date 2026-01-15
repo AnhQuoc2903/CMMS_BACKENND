@@ -1,12 +1,15 @@
+const mongoose = require("mongoose");
 const PDFDocument = require("pdfkit");
 const axios = require("axios");
 const WorkOrder = require("../models/WorkOrder");
 const cloudinary = require("cloudinary").v2;
 const AssetLog = require("../models/AssetLog");
 const Asset = require("../models/Asset");
-const mongoose = require("mongoose");
 const ChecklistTemplate = require("../models/ChecklistTemplate");
 const WorkOrderHistory = require("../models/WorkOrderHistory");
+const SparePart = require("../models/SparePart");
+const User = require("../models/User");
+const InventoryLog = require("../models/InventoryLog");
 
 const PRIORITY_SLA = {
   CRITICAL: 2,
@@ -14,6 +17,38 @@ const PRIORITY_SLA = {
   MEDIUM: 24,
   LOW: 72,
 };
+
+const rollbackUsedParts = async (wo, userId) => {
+  if (!wo.usedParts?.length) return;
+
+  for (const u of wo.usedParts) {
+    const part = await SparePart.findById(u.part);
+    if (!part) continue;
+
+    const beforeQty = part.quantity;
+    const afterQty = beforeQty + u.quantity;
+
+    // ⬆️ hoàn kho
+    await SparePart.findByIdAndUpdate(u.part, {
+      $inc: { quantity: u.quantity },
+    });
+
+    // 🧾 GHI INVENTORY LOG (CỰC KỲ QUAN TRỌNG)
+    await InventoryLog.create({
+      sparePart: u.part,
+      type: "ROLLBACK",
+      quantity: u.quantity,
+      beforeQty,
+      afterQty,
+      workOrder: wo._id,
+      performedBy: userId, // 👈 CHÍNH DÒNG NÀY
+      note: "Rejected / Rework",
+    });
+  }
+
+  wo.usedParts = [];
+};
+
 /* ======================================================
    GET ALL
 ====================================================== */
@@ -61,7 +96,8 @@ exports.updatePriority = async (req, res) => {
     return res.status(400).json({ message: "Invalid priority" });
   }
 
-  const wo = await WorkOrder.findById(req.params.id);
+  const wo = await WorkOrder.findById(req.params.id).populate("usedParts.part");
+
   if (!wo) return res.status(404).json({ message: "Not found" });
 
   // ❗ Chỉ cho đổi khi WO CHƯA CHẠY
@@ -87,7 +123,8 @@ exports.updatePriority = async (req, res) => {
 exports.getDetail = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id)
     .populate("assignedAssets", "name code status")
-    .populate("assignedTechnicians", "name email");
+    .populate("assignedTechnicians", "name email status")
+    .populate("usedParts.part", "name quantity status");
 
   if (!wo) return res.status(404).json({ message: "Work order not found" });
   res.json(wo);
@@ -168,25 +205,51 @@ exports.assignTechnicians = async (req, res) => {
     });
   }
 
-  const template = await ChecklistTemplate.findOne({
-    isActive: true,
+  // ✅ chỉ ACTIVE technician
+  const activeTechs = await User.find({
+    _id: { $in: technicians },
+    status: "ACTIVE",
   });
 
-  if (template && wo.checklist.length === 0) {
-    wo.checklist = template.items.map((i) => ({
-      title: i.title,
-      isDone: false,
-    }));
+  if (activeTechs.length !== technicians.length) {
+    return res.status(400).json({
+      message: "One or more technicians are INACTIVE",
+    });
   }
 
-  // ✅ ÉP KIỂU ObjectId (QUAN TRỌNG NHẤT)
-  wo.assignedTechnicians = technicians.map(
-    (id) => new mongoose.Types.ObjectId(id)
-  );
+  wo.assignedTechnicians = activeTechs.map((t) => t._id);
+
+  // ✅ auto apply checklist
+  if (!wo.checklist || wo.checklist.length === 0) {
+    const template = await ChecklistTemplate.findOne({ isActive: true });
+    if (template) {
+      wo.checklist = template.items.map((i) => ({
+        title: i.title,
+        isDone: false,
+      }));
+      wo.checklistTemplate = {
+        templateId: template._id,
+        name: template.name,
+      };
+    }
+  }
+
+  // ✅ update status
+  const isFullyAssigned =
+    wo.assignedTechnicians.length > 0 && wo.assignedAssets.length > 0;
+
+  wo.status = isFullyAssigned ? "ASSIGNED" : "APPROVED";
 
   await wo.save();
-  res.json(wo);
+
+  const populated = await WorkOrder.findById(wo._id).populate(
+    "assignedTechnicians",
+    "name email status"
+  );
+
+  res.json(populated);
 };
+
 /* ======================================================
    ASSIGN ASSETS
 ====================================================== */
@@ -262,13 +325,6 @@ exports.startWorkOrder = async (req, res) => {
     });
   }
 
-  // trong startWorkOrder
-  await WorkOrderHistory.create({
-    workOrder: wo._id,
-    action: "START",
-    performedBy: req.user.id,
-  });
-
   // 5️⃣ OK → START
   wo.status = "IN_PROGRESS";
   await wo.save();
@@ -280,33 +336,53 @@ exports.startWorkOrder = async (req, res) => {
    CHECKLIST
 ====================================================== */
 exports.updateChecklist = async (req, res) => {
-  const wo = await WorkOrder.findById(req.params.id);
+  const wo = await WorkOrder.findById(req.params.id).populate(
+    "assignedTechnicians",
+    "status"
+  );
+
   if (!wo) return res.status(404).json({ message: "Not found" });
 
   if (wo.status !== "IN_PROGRESS") {
     return res.status(400).json({ message: "Not in progress" });
   }
 
-  const isAssigned = wo.assignedTechnicians.some(
-    (t) => t.toString() === req.user.id
+  // 🔐 check technician
+  const tech = wo.assignedTechnicians.find(
+    (t) => t._id.toString() === req.user.id
   );
 
-  if (req.user.role !== "TECHNICIAN" || !isAssigned) {
-    return res.status(403).json({ message: "Forbidden" });
+  if (!tech) {
+    return res.status(403).json({ message: "Not assigned" });
   }
 
+  if (tech.status !== "ACTIVE") {
+    return res.status(403).json({
+      message: "Inactive technician cannot update checklist",
+    });
+  }
+
+  // 🔥 CHECK TEMPLATE STATUS
+  if (wo.checklistTemplate?.templateId) {
+    const tpl = await ChecklistTemplate.findById(
+      wo.checklistTemplate.templateId
+    );
+
+    if (!tpl || !tpl.isActive) {
+      return res.status(403).json({
+        message: "Checklist template is inactive. Checklist is locked.",
+      });
+    }
+  }
+
+  // payload check
   if (!Array.isArray(req.body.checklist)) {
     return res.status(400).json({ message: "Invalid checklist payload" });
   }
 
-  if (req.body.checklist.length !== wo.checklist.length) {
-    return res.status(400).json({
-      message: "Checklist length mismatch",
-    });
-  }
-
   wo.checklist = req.body.checklist;
   await wo.save();
+
   res.json(wo);
 };
 
@@ -366,6 +442,9 @@ exports.uploadSignature = async (req, res) => {
   wo.signature = { url: upload.secure_url };
   wo.status = "COMPLETED";
   wo.completedAt = new Date();
+
+  // ===== TRỪ KHO =====
+
   await wo.save();
 
   for (const assetId of wo.assignedAssets) {
@@ -403,8 +482,9 @@ exports.closeWorkOrder = async (req, res) => {
 
 exports.exportPDF = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id)
-    .populate("assignedAssets", "name code")
-    .populate("assignedTechnicians", "name email");
+    .populate("assignedTechnicians", "name email status")
+    .populate("assignedAssets", "name code status")
+    .populate("usedParts.part", "name sku");
 
   if (!wo) {
     return res.status(404).json({ message: "Work order not found" });
@@ -426,76 +506,88 @@ exports.exportPDF = async (req, res) => {
 
   doc.pipe(res);
 
-  /* ===== HEADER ===== */
-  doc.fontSize(18).text("WORK ORDER", { align: "center" });
+  /* ========= HELPERS ========= */
+  const sectionTitle = (title) => {
+    doc.moveDown();
+    doc.font("Helvetica-Bold").fontSize(13).text(title);
+    doc.moveDown(0.3);
+    doc.font("Helvetica").fontSize(11);
+  };
+
+  /* ========= HEADER ========= */
+  doc.font("Helvetica-Bold").fontSize(18).text("WORK ORDER", {
+    align: "center",
+  });
   doc.moveDown();
 
-  doc.fontSize(12);
+  doc.font("Helvetica").fontSize(12);
   doc.text(`Title: ${wo.title}`);
   doc.text(`Description: ${wo.description || "-"}`);
   doc.text(`Status: ${wo.status}`);
-  doc.text(`Completed At: ${wo.completedAt || "-"}`);
-  doc.moveDown();
+  doc.text(
+    `Completed At: ${
+      wo.completedAt ? new Date(wo.completedAt).toLocaleString() : "-"
+    }`
+  );
 
+  doc.moveDown();
   doc.moveTo(40, doc.y).lineTo(550, doc.y).stroke();
-  doc.moveDown();
 
-  /* ===== TECHNICIANS ===== */
-  doc.fontSize(14).text("Technicians");
-  doc.moveDown(0.5);
+  /* ========= TECHNICIANS ========= */
+  sectionTitle("Technicians");
 
   if (!wo.assignedTechnicians.length) {
-    doc.fontSize(11).text("- None");
+    doc.text("- None");
   } else {
     wo.assignedTechnicians.forEach((t) => {
-      doc.fontSize(11).text(`- ${t.name} (${t.email})`, {
-        indent: 20,
+      doc.text(`• ${t.name} (${t.email})`, { indent: 15 });
+    });
+  }
+
+  /* ========= SPARE PARTS ========= */
+  sectionTitle("Spare Parts Used");
+
+  if (!wo.usedParts?.length) {
+    doc.text("- None");
+  } else {
+    wo.usedParts.forEach((u) => {
+      doc.text(`• ${u.part?.name || "Unknown"}  x${u.quantity}`, {
+        indent: 15,
       });
     });
   }
 
-  doc.moveDown();
-
-  /* ===== ASSETS ===== */
-  doc.fontSize(14).text("Assets");
-  doc.moveDown(0.5);
+  /* ========= ASSETS ========= */
+  sectionTitle("Assets");
 
   if (!wo.assignedAssets.length) {
-    doc.fontSize(11).text("- None");
+    doc.text("- None");
   } else {
     wo.assignedAssets.forEach((a) => {
-      doc.fontSize(11).text(`- ${a.name} (${a.code})`, {
-        indent: 20,
-      });
+      doc.text(`• ${a.name} (${a.code})`, { indent: 15 });
     });
   }
 
-  doc.moveDown();
+  /* ========= CHECKLIST ========= */
+  sectionTitle("Checklist");
 
-  /* ===== CHECKLIST ===== */
-  doc.fontSize(14).text("Checklist");
-  doc.moveDown(0.5);
-
-  if (!wo.checklist.length) {
-    doc.fontSize(11).text("- No checklist items");
+  if (!wo.checklist?.length) {
+    doc.text("- None");
   } else {
     wo.checklist.forEach((c) => {
-      doc.fontSize(11).text(`${c.isDone ? "☑" : "☐"} ${c.title}`, {
-        indent: 20,
+      doc.text(`${c.isDone ? "☑" : "☐"} ${c.title}`, {
+        indent: 15,
       });
     });
   }
 
-  doc.moveDown();
-
-  /* ===== PHOTOS ===== */
+  /* ========= PHOTOS ========= */
   if (wo.photos?.length) {
-    doc.fontSize(14).text("Photos");
-    doc.moveDown(0.5);
+    sectionTitle("Photos");
 
     let x = 40;
     let y = doc.y;
-    const size = 180;
+    const size = 160;
 
     for (const p of wo.photos) {
       const img = await axios
@@ -514,17 +606,37 @@ exports.exportPDF = async (req, res) => {
     doc.y = y + size + 20;
   }
 
-  /* ===== SIGNATURE ===== */
+  /* ========= SIGNATURE (BÊN PHẢI – CÙNG TRANG) ========= */
   if (wo.signature?.url) {
-    doc.addPage();
-    doc.fontSize(14).text("Signature");
-    doc.moveDown();
+    const sigX = 350;
+    const sigY = 120;
 
-    const sig = await axios
+    doc.font("Helvetica-Bold").fontSize(13).text("Signature", sigX, sigY);
+
+    const sigImg = await axios
       .get(wo.signature.url, { responseType: "arraybuffer" })
       .then((r) => r.data);
 
-    doc.image(sig, { width: 250 });
+    doc.image(sigImg, sigX, sigY + 20, {
+      width: 180,
+    });
+
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .text(
+        `Signed at: ${
+          wo.completedAt ? new Date(wo.completedAt).toLocaleString() : "-"
+        }`,
+        sigX,
+        sigY + 110
+      );
+
+    // đường kẻ chia cột (optional, nhìn rất đẹp)
+    doc
+      .moveTo(330, 100)
+      .lineTo(330, doc.page.height - 50)
+      .stroke();
   }
 
   doc.end();
@@ -547,9 +659,14 @@ exports.applyChecklistTemplate = async (req, res) => {
 
   // ✅ QUAN TRỌNG NHẤT
   wo.checklist = template.items.map((item) => ({
-    title: item.title, // ← BẮT BUỘC
+    title: item.title,
     isDone: false,
   }));
+
+  wo.checklistTemplate = {
+    templateId: template._id,
+    name: template.name,
+  };
 
   await wo.save();
   res.json(wo);
@@ -596,7 +713,6 @@ exports.verifyWorkOrder = async (req, res) => {
 
 exports.rejectReview = async (req, res) => {
   const { reason } = req.body;
-
   if (!reason) {
     return res.status(400).json({ message: "Reject reason required" });
   }
@@ -608,20 +724,22 @@ exports.rejectReview = async (req, res) => {
     return res.status(400).json({ message: "Not reviewed yet" });
   }
 
+  // 🔁 ROLLBACK KHO
+  await rollbackUsedParts(wo, req.user.id);
+
   wo.status = "IN_PROGRESS";
+  wo.signature = undefined;
+
   wo.reviewRejections.push({
     rejectedBy: req.user.id,
     rejectedAt: new Date(),
     reason,
   });
 
-  // ❗ reset signature để bắt ký lại
-  wo.signature = undefined;
-
   await WorkOrderHistory.create({
     workOrder: wo._id,
     action: "REWORK",
-    performedBy: req.user.id, // hoặc từng tech nếu nhiều
+    performedBy: req.user.id,
     note: reason,
   });
 
@@ -631,7 +749,6 @@ exports.rejectReview = async (req, res) => {
 
 exports.rejectVerification = async (req, res) => {
   const { reason } = req.body;
-
   if (!reason) {
     return res.status(400).json({ message: "Reject reason required" });
   }
@@ -643,14 +760,17 @@ exports.rejectVerification = async (req, res) => {
     return res.status(400).json({ message: "Not verified yet" });
   }
 
+  // 🔁 ROLLBACK KHO
+  await rollbackUsedParts(wo, req.user.id);
+
   wo.status = "IN_PROGRESS";
+  wo.signature = undefined;
+
   wo.verificationRejections.push({
     rejectedBy: req.user.id,
     rejectedAt: new Date(),
     reason,
   });
-
-  wo.signature = undefined;
 
   await WorkOrderHistory.create({
     workOrder: wo._id,
@@ -684,4 +804,126 @@ exports.getMyWorkOrderHistory = async (req, res) => {
     .sort({ createdAt: -1 });
 
   res.json(history);
+};
+
+exports.updateUsedParts = async (req, res) => {
+  const { usedParts } = req.body;
+
+  if (!Array.isArray(usedParts)) {
+    return res.status(400).json({ message: "Invalid usedParts payload" });
+  }
+
+  // ❗ CHỐNG DUPLICATE PART
+  const ids = usedParts.map((p) => p.part.toString());
+  if (ids.length !== new Set(ids).size) {
+    return res.status(400).json({
+      message: "Duplicate spare parts are not allowed",
+    });
+  }
+
+  const wo = await WorkOrder.findById(req.params.id);
+  if (!wo) return res.status(404).json({ message: "Not found" });
+
+  if (wo.status !== "IN_PROGRESS") {
+    return res.status(400).json({
+      message: "Can only update used parts when IN_PROGRESS",
+    });
+  }
+
+  // 🔐 chỉ technician được assign
+  const isAssigned = wo.assignedTechnicians.some(
+    (t) => t.toString() === req.user.id
+  );
+  if (!isAssigned) return res.status(403).json({ message: "Forbidden" });
+
+  // ===== MAP OLD =====
+  const oldMap = new Map();
+  (wo.usedParts || []).forEach((p) => {
+    oldMap.set(p.part.toString(), p.quantity);
+  });
+
+  // ===== MAP NEW =====
+  const newMap = new Map();
+  usedParts.forEach((p) => {
+    newMap.set(p.part.toString(), p.quantity);
+  });
+
+  // ===== APPLY DELTA (TRỪ THÊM) =====
+  for (const [partId, newQty] of newMap.entries()) {
+    const oldQty = oldMap.get(partId) || 0;
+    const delta = newQty - oldQty;
+
+    if (delta > 0) {
+      const part = await SparePart.findById(partId);
+      if (!part) {
+        return res.status(400).json({ message: "Spare part not found" });
+      }
+
+      if (part.quantity < delta) {
+        return res.status(400).json({
+          message: `Not enough stock for ${part.name}`,
+        });
+      }
+
+      const before = part.quantity;
+
+      // ⬇️ TRỪ KHO
+      await SparePart.findByIdAndUpdate(partId, {
+        $inc: { quantity: -delta },
+      });
+
+      // 🧾 GHI LỊCH SỬ XUẤT KHO
+      await InventoryLog.create({
+        sparePart: partId,
+        type: "OUT",
+        quantity: delta,
+        beforeQty: before,
+        afterQty: before - delta,
+        workOrder: wo._id,
+        performedBy: req.user.id,
+      });
+    }
+
+    if (delta < 0) {
+      const part = await SparePart.findById(partId);
+      if (!part) continue;
+
+      const before = part.quantity;
+
+      await SparePart.findByIdAndUpdate(partId, {
+        $inc: { quantity: Math.abs(delta) },
+      });
+
+      // 🧾 LOG HOÀN KHO
+      await InventoryLog.create({
+        sparePart: partId,
+        type: "ROLLBACK",
+        quantity: Math.abs(delta),
+        beforeQty: before,
+        afterQty: before + Math.abs(delta),
+        workOrder: wo._id,
+        performedBy: req.user.id,
+        note: "Reduce used quantity",
+      });
+    }
+  }
+
+  // ===== HOÀN KHO CHO PART BỊ XOÁ =====
+  for (const [partId, oldQty] of oldMap.entries()) {
+    if (!newMap.has(partId)) {
+      await SparePart.findByIdAndUpdate(partId, {
+        $inc: { quantity: oldQty },
+      });
+    }
+  }
+
+  wo.usedParts = usedParts;
+  await wo.save();
+
+  const populated = await WorkOrder.findById(wo._id).populate(
+    "usedParts.part",
+    "name quantity status"
+  );
+
+  res.json(populated);
 };

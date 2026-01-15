@@ -73,4 +73,6 @@ r.get(
   c.getMyWorkOrderHistory
 );
 
+r.patch("/:id/used-parts", auth, requireRole("TECHNICIAN"), c.updateUsedParts);
+
 module.exports = r;
