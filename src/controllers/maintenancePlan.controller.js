@@ -2,6 +2,7 @@ const MaintenancePlan = require("../models/MaintenancePlan");
 const { calculateNextRun } = require("../utils/pm.util");
 const ChecklistTemplate = require("../models/ChecklistTemplate");
 const WorkOrder = require("../models/WorkOrder");
+const Asset = require("../models/Asset");
 
 exports.getPlanWorkOrders = async (req, res) => {
   const workOrders = await WorkOrder.find({
@@ -84,6 +85,29 @@ exports.runNow = async (req, res) => {
     return res.status(400).json({ message: "Plan inactive or not found" });
   }
 
+  /* ===== 1️⃣ CHECK ASSET BUSY ===== */
+  const assets = await Asset.find({ _id: { $in: plan.assets } });
+
+  const blocked = assets.filter((a) =>
+    ["IN_USE", "MAINTENANCE"].includes(a.status)
+  );
+
+  if (blocked.length > 0) {
+    return res.status(400).json({
+      message: `Assets busy: ${blocked.map((a) => a.name).join(", ")}`,
+    });
+  }
+
+  if (
+    plan.lastRunAt &&
+    new Date(plan.lastRunAt).toDateString() === new Date().toDateString()
+  ) {
+    return res.status(400).json({
+      message: "Maintenance plan already ran today",
+    });
+  }
+
+  /* ===== 2️⃣ CREATE WORK ORDER ===== */
   const wo = await WorkOrder.create({
     title: `[PM] ${plan.name}`,
     description: "Preventive maintenance",
@@ -93,20 +117,26 @@ exports.runNow = async (req, res) => {
     status: "APPROVED",
   });
 
+  /* ===== 3️⃣ CHECKLIST SNAPSHOT ===== */
   if (plan.checklistTemplate) {
     wo.checklist = plan.checklistTemplate.items.map((i) => ({
       title: i.title,
       isDone: false,
     }));
+
     wo.checklistTemplate = {
       templateId: plan.checklistTemplate._id,
       name: plan.checklistTemplate.name,
     };
+
     await wo.save();
   }
 
+  /* ===== 4️⃣ UPDATE PLAN (QUAN TRỌNG) ===== */
   plan.lastRunAt = new Date();
   plan.lastRunStatus = "SUCCESS";
+  plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan.frequency);
+
   await plan.save();
 
   res.json(wo);

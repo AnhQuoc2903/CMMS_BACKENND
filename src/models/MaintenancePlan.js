@@ -30,7 +30,7 @@ module.exports = mongoose.model(
       lastRunAt: Date,
       lastRunStatus: {
         type: String,
-        enum: ["SUCCESS", "FAILED"],
+        enum: ["SUCCESS", "FAILED", "RUNNING", "SKIPPED_ASSET_BUSY"],
       },
 
       isActive: { type: Boolean, default: true },

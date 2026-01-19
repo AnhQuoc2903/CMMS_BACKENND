@@ -31,6 +31,10 @@ const SparePartSchema = new mongoose.Schema(
       enum: ["ACTIVE", "INACTIVE"],
       default: "ACTIVE",
     },
+    reservedQuantity: {
+      type: Number,
+      default: 0, // kho đang bị giữ
+    },
   },
   {
     timestamps: true,

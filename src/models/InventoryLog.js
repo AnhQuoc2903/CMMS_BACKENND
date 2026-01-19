@@ -10,7 +10,7 @@ const InventoryLogSchema = new mongoose.Schema(
 
     type: {
       type: String,
-      enum: ["IN", "OUT", "ROLLBACK"],
+      enum: ["IN", "OUT", "ROLLBACK", "RESERVE", "RELEASE"],
       required: true,
     },
 
@@ -19,15 +19,8 @@ const InventoryLogSchema = new mongoose.Schema(
       required: true,
     },
 
-    beforeQty: {
-      type: Number,
-      required: true,
-    },
-
-    afterQty: {
-      type: Number,
-      required: true,
-    },
+    beforeQty: { type: Number, required: true }, // ❗
+    afterQty: { type: Number, required: true },
 
     workOrder: {
       type: mongoose.Schema.Types.ObjectId,

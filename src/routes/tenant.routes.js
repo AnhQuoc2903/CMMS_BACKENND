@@ -1,36 +1,35 @@
 const r = require("express").Router();
-const TenantRequest = require("../models/TenantRequest");
 const auth = require("../middlewares/auth.middleware");
 const requireRole = require("../middlewares/role.middleware");
 const c = require("../controllers/tenantRequest.controller");
 
-// ===== LIST =====
+/* ======================================================
+   LIST (ADMIN / MANAGER)
+====================================================== */
 r.get("/", auth, requireRole("ADMIN", "MANAGER"), c.getTenantRequests);
 
-// ===== TENANT SUBMIT =====
-r.post("/request", async (req, res) => {
-  const { title, description, tenantName, tenantEmail } = req.body;
+/* ======================================================
+   TENANT SUBMIT (PUBLIC)
+====================================================== */
+r.post("/request", c.submitTenantRequest);
 
-  const tr = await TenantRequest.create({
-    title,
-    description,
-    tenantName,
-    tenantEmail,
-  });
+/* ======================================================
+   FLOW CHUẨN
+====================================================== */
 
-  res.json(tr);
-});
+// Building approve
+r.post("/:id/building-approve", auth, requireRole("ADMIN"), c.buildingApprove);
 
-// ===== APPROVE =====
-r.patch(
-  "/:id/approve",
-  auth,
-  requireRole("ADMIN", "MANAGER"),
-  c.approveTenantRequest
-);
+// MSP review
+r.post("/:id/msp-review", auth, requireRole("MANAGER"), c.mspReview);
 
-// ===== REJECT =====
-r.patch(
+// Final approve → create WorkOrder
+r.post("/:id/final-approve", auth, requireRole("ADMIN"), c.finalApprove);
+
+/* ======================================================
+   REJECT
+====================================================== */
+r.post(
   "/:id/reject",
   auth,
   requireRole("ADMIN", "MANAGER"),

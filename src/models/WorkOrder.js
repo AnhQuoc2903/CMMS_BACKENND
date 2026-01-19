@@ -69,6 +69,19 @@ module.exports = mongoose.model(
         default: 0,
       },
 
+      cancelReason: {
+        type: String,
+      },
+
+      cancelledAt: {
+        type: Date,
+      },
+
+      cancelledBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+
       review: {
         reviewedBy: {
           type: mongoose.Schema.Types.ObjectId,

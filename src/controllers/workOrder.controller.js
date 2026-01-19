@@ -18,36 +18,87 @@ const PRIORITY_SLA = {
   LOW: 72,
 };
 
-const rollbackUsedParts = async (wo, userId) => {
-  if (!wo.usedParts?.length) return;
+async function releaseReservedInventory(workOrder, userId) {
+  for (const item of workOrder.usedParts || []) {
+    const spare = await SparePart.findById(item.part);
+    if (!spare) continue;
 
-  for (const u of wo.usedParts) {
-    const part = await SparePart.findById(u.part);
-    if (!part) continue;
+    const before = spare.reservedQuantity || 0;
 
-    const beforeQty = part.quantity;
-    const afterQty = beforeQty + u.quantity;
+    spare.reservedQuantity = Math.max(
+      spare.reservedQuantity - item.quantity,
+      0,
+    );
 
-    // ⬆️ hoàn kho
-    await SparePart.findByIdAndUpdate(u.part, {
-      $inc: { quantity: u.quantity },
-    });
+    await spare.save();
 
-    // 🧾 GHI INVENTORY LOG (CỰC KỲ QUAN TRỌNG)
     await InventoryLog.create({
-      sparePart: u.part,
-      type: "ROLLBACK",
-      quantity: u.quantity,
-      beforeQty,
-      afterQty,
-      workOrder: wo._id,
-      performedBy: userId, // 👈 CHÍNH DÒNG NÀY
-      note: "Rejected / Rework",
+      sparePart: spare._id,
+      type: "RELEASE",
+      quantity: item.quantity,
+      beforeQty: before,
+      afterQty: spare.reservedQuantity,
+      workOrder: workOrder._id,
+      performedBy: userId,
     });
   }
+}
 
-  wo.usedParts = [];
-};
+async function reserveInventory(workOrder, userId) {
+  for (const item of workOrder.usedParts || []) {
+    const spare = await SparePart.findById(item.part);
+    if (!spare) continue;
+
+    const available = spare.quantity - (spare.reservedQuantity || 0);
+    if (available < item.quantity) {
+      throw new Error(`Not enough stock for ${spare.name}`);
+    }
+
+    const before = spare.reservedQuantity || 0;
+    spare.reservedQuantity = before + item.quantity;
+    await spare.save();
+
+    await InventoryLog.create({
+      sparePart: spare._id,
+      type: "RESERVE",
+      quantity: item.quantity,
+      beforeQty: before,
+      afterQty: spare.reservedQuantity,
+      workOrder: workOrder._id,
+      performedBy: userId,
+    });
+  }
+}
+
+async function consumeInventory(workOrder, userId, session) {
+  for (const item of workOrder.usedParts || []) {
+    const spare = await SparePart.findById(item.part).session(session);
+    if (!spare) continue;
+
+    const beforeQty = spare.quantity;
+    const beforeReserved = spare.reservedQuantity || 0;
+
+    spare.quantity = Math.max(spare.quantity - item.quantity, 0);
+    spare.reservedQuantity = Math.max(beforeReserved - item.quantity, 0);
+
+    await spare.save({ session });
+
+    await InventoryLog.create(
+      [
+        {
+          sparePart: spare._id,
+          type: "OUT",
+          quantity: item.quantity,
+          beforeQty,
+          afterQty: spare.quantity,
+          workOrder: workOrder._id,
+          performedBy: userId,
+        },
+      ],
+      { session },
+    );
+  }
+}
 
 /* ======================================================
    GET ALL
@@ -120,14 +171,22 @@ exports.updatePriority = async (req, res) => {
 /* ======================================================
    GET DETAIL
 ====================================================== */
+// controllers/workOrder.controller.js
+
 exports.getDetail = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id)
     .populate("assignedAssets", "name code status")
     .populate("assignedTechnicians", "name email status")
-    .populate("usedParts.part", "name quantity status")
+    .populate(
+      "usedParts.part",
+      "name quantity reservedQuantity status", // ✅ QUAN TRỌNG
+    )
     .populate("maintenancePlan", "name frequency");
 
-  if (!wo) return res.status(404).json({ message: "Work order not found" });
+  if (!wo) {
+    return res.status(404).json({ message: "Work order not found" });
+  }
+
   res.json(wo);
 };
 
@@ -245,7 +304,7 @@ exports.assignTechnicians = async (req, res) => {
 
   const populated = await WorkOrder.findById(wo._id).populate(
     "assignedTechnicians",
-    "name email status"
+    "name email status",
   );
 
   res.json(populated);
@@ -339,7 +398,7 @@ exports.startWorkOrder = async (req, res) => {
 exports.updateChecklist = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id).populate(
     "assignedTechnicians",
-    "status"
+    "status",
   );
 
   if (!wo) return res.status(404).json({ message: "Not found" });
@@ -350,7 +409,7 @@ exports.updateChecklist = async (req, res) => {
 
   // 🔐 check technician
   const tech = wo.assignedTechnicians.find(
-    (t) => t._id.toString() === req.user.id
+    (t) => t._id.toString() === req.user.id,
   );
 
   if (!tech) {
@@ -366,7 +425,7 @@ exports.updateChecklist = async (req, res) => {
   // 🔥 CHECK TEMPLATE STATUS
   if (wo.checklistTemplate?.templateId) {
     const tpl = await ChecklistTemplate.findById(
-      wo.checklistTemplate.templateId
+      wo.checklistTemplate.templateId,
     );
 
     if (!tpl || !tpl.isActive) {
@@ -399,7 +458,7 @@ exports.uploadPhoto = async (req, res) => {
   }
 
   const isAssigned = wo.assignedTechnicians.some(
-    (t) => t.toString() === req.user.id
+    (t) => t.toString() === req.user.id,
   );
 
   if (req.user.role !== "TECHNICIAN" || !isAssigned) {
@@ -429,9 +488,8 @@ exports.uploadSignature = async (req, res) => {
   }
 
   const isAssigned = wo.assignedTechnicians.some(
-    (t) => t.toString() === req.user.id
+    (t) => t.toString() === req.user.id,
   );
-
   if (!isAssigned) {
     return res.status(403).json({ message: "Forbidden" });
   }
@@ -440,23 +498,12 @@ exports.uploadSignature = async (req, res) => {
     folder: "cmms/signatures",
   });
 
+  // ✅ CHỈ LƯU SIGNATURE + ĐỔI STATUS
   wo.signature = { url: upload.secure_url };
-  wo.status = "COMPLETED";
   wo.completedAt = new Date();
-
-  // ===== TRỪ KHO =====
+  wo.status = "COMPLETED";
 
   await wo.save();
-
-  for (const assetId of wo.assignedAssets) {
-    await Asset.findByIdAndUpdate(assetId, { status: "MAINTENANCE" });
-    await AssetLog.create({
-      asset: assetId,
-      workOrder: wo._id,
-      action: "MAINTAINED",
-    });
-  }
-
   res.json(wo);
 };
 
@@ -516,7 +563,7 @@ exports.exportPDF = async (req, res) => {
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename=work-order-${wo._id}.pdf`
+    `attachment; filename=work-order-${wo._id}.pdf`,
   );
 
   doc.pipe(res);
@@ -542,7 +589,7 @@ exports.exportPDF = async (req, res) => {
   doc.text(
     `Completed At: ${
       wo.completedAt ? new Date(wo.completedAt).toLocaleString() : "-"
-    }`
+    }`,
   );
 
   doc.moveDown();
@@ -644,7 +691,7 @@ exports.exportPDF = async (req, res) => {
           wo.completedAt ? new Date(wo.completedAt).toLocaleString() : "-"
         }`,
         sigX,
-        sigY + 110
+        sigY + 110,
       );
 
     // đường kẻ chia cột (optional, nhìn rất đẹp)
@@ -709,21 +756,37 @@ exports.reviewWorkOrder = async (req, res) => {
 };
 
 exports.verifyWorkOrder = async (req, res) => {
-  const wo = await WorkOrder.findById(req.params.id);
-  if (!wo) return res.status(404).json({ message: "Not found" });
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  if (wo.status !== "REVIEWED") {
-    return res.status(400).json({ message: "Not reviewed yet" });
+  try {
+    const wo = await WorkOrder.findById(req.params.id).session(session);
+    if (!wo) throw new Error("Not found");
+
+    if (wo.status !== "REVIEWED") {
+      throw new Error("Not reviewed yet");
+    }
+
+    // ✅ CHỈ TẠI VERIFY MỚI TRỪ KHO
+    await consumeInventory(wo, req.user.id, session);
+
+    wo.status = "VERIFIED";
+    wo.verification = {
+      verifiedBy: req.user.id,
+      verifiedAt: new Date(),
+    };
+
+    await wo.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json(wo);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(400).json({ message: err.message });
   }
-
-  wo.status = "VERIFIED";
-  wo.verification = {
-    verifiedBy: req.user.id,
-    verifiedAt: new Date(),
-  };
-
-  await wo.save();
-  res.json(wo);
 };
 
 exports.rejectReview = async (req, res) => {
@@ -739,8 +802,8 @@ exports.rejectReview = async (req, res) => {
     return res.status(400).json({ message: "Not reviewed yet" });
   }
 
-  // 🔁 ROLLBACK KHO
-  await rollbackUsedParts(wo, req.user.id);
+  // ✅ CHỈ RELEASE (CHƯA HỀ OUT)
+  await releaseReservedInventory(wo, req.user.id);
 
   wo.status = "IN_PROGRESS";
   wo.signature = undefined;
@@ -776,7 +839,7 @@ exports.rejectVerification = async (req, res) => {
   }
 
   // 🔁 ROLLBACK KHO
-  await rollbackUsedParts(wo, req.user.id);
+  await releaseReservedInventory(wo, req.user.id);
 
   wo.status = "IN_PROGRESS";
   wo.signature = undefined;
@@ -804,7 +867,7 @@ exports.getMyWorkOrderHistory = async (req, res) => {
 
   // 🔐 chỉ technician được assign mới xem
   const isAssigned = wo.assignedTechnicians.some(
-    (t) => t.toString() === req.user.id
+    (t) => t.toString() === req.user.id,
   );
 
   if (!isAssigned) {
@@ -822,125 +885,104 @@ exports.getMyWorkOrderHistory = async (req, res) => {
 };
 
 exports.updateUsedParts = async (req, res) => {
-  const { usedParts } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  if (!Array.isArray(usedParts)) {
-    return res.status(400).json({ message: "Invalid usedParts payload" });
-  }
+  try {
+    const { usedParts } = req.body;
 
-  // ❗ CHỐNG DUPLICATE PART
-  const ids = usedParts.map((p) => p.part.toString());
-  if (ids.length !== new Set(ids).size) {
-    return res.status(400).json({
-      message: "Duplicate spare parts are not allowed",
-    });
-  }
+    const wo = await WorkOrder.findById(req.params.id).session(session);
+    if (!wo) throw new Error("Work order not found");
 
-  const wo = await WorkOrder.findById(req.params.id);
-  if (!wo) return res.status(404).json({ message: "Not found" });
+    if (wo.status !== "IN_PROGRESS") {
+      throw new Error("Only allowed in IN_PROGRESS");
+    }
 
-  if (wo.status !== "IN_PROGRESS") {
-    return res.status(400).json({
-      message: "Can only update used parts when IN_PROGRESS",
-    });
-  }
+    // OLD & NEW MAP
+    const oldMap = new Map();
+    (wo.usedParts || []).forEach((u) =>
+      oldMap.set(u.part.toString(), u.quantity),
+    );
 
-  // 🔐 chỉ technician được assign
-  const isAssigned = wo.assignedTechnicians.some(
-    (t) => t.toString() === req.user.id
-  );
-  if (!isAssigned) return res.status(403).json({ message: "Forbidden" });
+    const newMap = new Map();
+    usedParts.forEach((u) => newMap.set(u.part.toString(), u.quantity));
 
-  // ===== MAP OLD =====
-  const oldMap = new Map();
-  (wo.usedParts || []).forEach((p) => {
-    oldMap.set(p.part.toString(), p.quantity);
-  });
+    const allPartIds = new Set([...oldMap.keys(), ...newMap.keys()]);
 
-  // ===== MAP NEW =====
-  const newMap = new Map();
-  usedParts.forEach((p) => {
-    newMap.set(p.part.toString(), p.quantity);
-  });
+    for (const partId of allPartIds) {
+      const oldQty = oldMap.get(partId) || 0;
+      const newQty = newMap.get(partId) || 0;
+      const diff = newQty - oldQty;
 
-  // ===== APPLY DELTA (TRỪ THÊM) =====
-  for (const [partId, newQty] of newMap.entries()) {
-    const oldQty = oldMap.get(partId) || 0;
-    const delta = newQty - oldQty;
+      if (diff === 0) continue;
 
-    if (delta > 0) {
-      const part = await SparePart.findById(partId);
-      if (!part) {
-        return res.status(400).json({ message: "Spare part not found" });
+      const part = await SparePart.findById(partId).session(session);
+      if (!part) throw new Error("Spare part not found");
+
+      const before = part.reservedQuantity || 0;
+
+      if (diff > 0) {
+        const available = part.quantity - before;
+        if (available < diff) {
+          throw new Error(`Not enough stock for ${part.name}`);
+        }
+        part.reservedQuantity += diff;
+
+        await InventoryLog.create(
+          [
+            {
+              sparePart: part._id,
+              type: "RESERVE",
+              quantity: diff,
+              beforeQty: before,
+              afterQty: part.reservedQuantity,
+              workOrder: wo._id,
+              performedBy: req.user.id,
+            },
+          ],
+          { session },
+        );
       }
 
-      if (part.quantity < delta) {
-        return res.status(400).json({
-          message: `Not enough stock for ${part.name}`,
-        });
+      if (diff < 0) {
+        part.reservedQuantity = Math.max(before + diff, 0);
+
+        await InventoryLog.create(
+          [
+            {
+              sparePart: part._id,
+              type: "RELEASE",
+              quantity: Math.abs(diff),
+              beforeQty: before,
+              afterQty: part.reservedQuantity,
+              workOrder: wo._id,
+              performedBy: req.user.id,
+            },
+          ],
+          { session },
+        );
       }
 
-      const before = part.quantity;
-
-      // ⬇️ TRỪ KHO
-      await SparePart.findByIdAndUpdate(partId, {
-        $inc: { quantity: -delta },
-      });
-
-      // 🧾 GHI LỊCH SỬ XUẤT KHO
-      await InventoryLog.create({
-        sparePart: partId,
-        type: "OUT",
-        quantity: delta,
-        beforeQty: before,
-        afterQty: before - delta,
-        workOrder: wo._id,
-        performedBy: req.user.id,
-      });
+      await part.save({ session });
     }
 
-    if (delta < 0) {
-      const part = await SparePart.findById(partId);
-      if (!part) continue;
+    wo.usedParts = usedParts;
+    await wo.save({ session });
 
-      const before = part.quantity;
+    await session.commitTransaction();
+    session.endSession();
 
-      await SparePart.findByIdAndUpdate(partId, {
-        $inc: { quantity: Math.abs(delta) },
-      });
+    const populated = await WorkOrder.findById(wo._id).populate(
+      "usedParts.part",
+      "name quantity reservedQuantity status",
+    );
 
-      // 🧾 LOG HOÀN KHO
-      await InventoryLog.create({
-        sparePart: partId,
-        type: "ROLLBACK",
-        quantity: Math.abs(delta),
-        beforeQty: before,
-        afterQty: before + Math.abs(delta),
-        workOrder: wo._id,
-        performedBy: req.user.id,
-        note: "Reduce used quantity",
-      });
-    }
+    res.json(populated);
+  } catch (err) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(400).json({ message: err.message });
   }
-
-  // ===== HOÀN KHO CHO PART BỊ XOÁ =====
-  for (const [partId, oldQty] of oldMap.entries()) {
-    if (!newMap.has(partId)) {
-      await SparePart.findByIdAndUpdate(partId, {
-        $inc: { quantity: oldQty },
-      });
-    }
-  }
-
-  wo.usedParts = usedParts;
-  await wo.save();
-
-  const populated = await WorkOrder.findById(wo._id).populate(
-    "usedParts.part",
-    "name quantity status"
-  );
-
-  res.json(populated);
 };
 
 exports.cancelWorkOrder = async (req, res) => {
@@ -954,7 +996,7 @@ exports.cancelWorkOrder = async (req, res) => {
   }
 
   // 🔁 1. ROLLBACK INVENTORY (nếu đã xuất kho)
-  await rollbackUsedParts(wo, req.user.id);
+  await releaseReservedInventory(wo, req.user.id);
 
   // 🔁 2. TRẢ ASSET VỀ AVAILABLE
   for (const assetId of wo.assignedAssets || []) {
@@ -1023,14 +1065,14 @@ exports.resumeWorkOrder = async (req, res) => {
 
   wo.status = "IN_PROGRESS";
 
-  if (wo.slaPausedAt) {
+  if (wo.slaPausedAt && wo.dueAt) {
     const pausedMs = Date.now() - wo.slaPausedAt.getTime();
+
     wo.slaPausedTotal = (wo.slaPausedTotal || 0) + pausedMs;
     wo.slaPausedAt = null;
 
-    wo.slaDueAt = new Date(wo.slaDueAt.getTime() + pausedMs);
+    wo.dueAt = new Date(wo.dueAt.getTime() + pausedMs);
   }
-
   // 🧾 AUDIT
   await WorkOrderHistory.create({
     workOrder: wo._id,

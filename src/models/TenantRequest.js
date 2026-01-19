@@ -12,8 +12,14 @@ module.exports = mongoose.model(
 
       status: {
         type: String,
-        enum: ["OPEN", "APPROVED", "REJECTED"],
-        default: "OPEN",
+        enum: [
+          "SUBMITTED",
+          "BUILDING_APPROVED",
+          "MSP_REVIEWED", // 🆕
+          "FINAL_APPROVED",
+          "REJECTED",
+        ],
+        default: "SUBMITTED",
       },
 
       handledBy: {
@@ -21,7 +27,27 @@ module.exports = mongoose.model(
         ref: "User",
       },
 
-      rejectReason: String, // 👈 THÊM DÒNG NÀY
+      buildingApproval: {
+        approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        approvedAt: Date,
+        note: String,
+      },
+
+      mspReview: {
+        reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        reviewedAt: Date,
+        note: String,
+      },
+
+      finalApproval: {
+        approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        approvedAt: Date,
+      },
+
+      workOrder: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "WorkOrder",
+      },
     },
     { timestamps: true }
   )

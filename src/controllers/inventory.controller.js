@@ -51,7 +51,19 @@ exports.getAll = async (req, res) => {
   }
 
   const parts = await SparePart.find(filter).sort({ createdAt: -1 });
-  res.json(parts);
+
+  const result = parts.map((p) => ({
+    _id: p._id,
+    name: p.name,
+    sku: p.sku,
+    status: p.status,
+    quantity: p.quantity,
+    reservedQuantity: p.reservedQuantity || 0,
+    available: Math.max(p.quantity - (p.reservedQuantity || 0), 0), // ✅ QUAN TRỌNG
+    createdAt: p.createdAt,
+  }));
+
+  res.json(result);
 };
 
 /* ================= GET DETAIL ================= */
@@ -134,7 +146,13 @@ exports.stockIn = async (req, res) => {
 exports.getLowStock = async (req, res) => {
   const parts = await SparePart.find({
     status: "ACTIVE",
-    $expr: { $lte: ["$quantity", "$minStock"] },
+    minStock: { $ne: null },
+    $expr: {
+      $lte: [
+        { $subtract: ["$quantity", { $ifNull: ["$reservedQuantity", 0] }] },
+        "$minStock",
+      ],
+    },
   });
 
   res.json(parts);
