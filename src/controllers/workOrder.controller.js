@@ -10,6 +10,7 @@ const WorkOrderHistory = require("../models/WorkOrderHistory");
 const SparePart = require("../models/SparePart");
 const User = require("../models/User");
 const InventoryLog = require("../models/InventoryLog");
+const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
 
 const PRIORITY_SLA = {
   CRITICAL: 2,
@@ -315,6 +316,7 @@ exports.assignTechnicians = async (req, res) => {
 ====================================================== */
 exports.assignAssets = async (req, res) => {
   const { assets } = req.body;
+
   const wo = await WorkOrder.findById(req.params.id);
   if (!wo) return res.status(404).json({ message: "Not found" });
 
@@ -322,6 +324,7 @@ exports.assignAssets = async (req, res) => {
     return res.status(400).json({ message: "Cannot assign" });
   }
 
+  // ✅ check AVAILABLE (giữ nguyên)
   for (const assetId of assets) {
     const asset = await Asset.findById(assetId);
     if (!asset || asset.status !== "AVAILABLE") {
@@ -329,6 +332,7 @@ exports.assignAssets = async (req, res) => {
     }
   }
 
+  // ✅ gán vào WO
   wo.assignedAssets = assets;
 
   const isFullyAssigned =
@@ -337,14 +341,13 @@ exports.assignAssets = async (req, res) => {
   wo.status = isFullyAssigned ? "ASSIGNED" : "APPROVED";
   await wo.save();
 
-  for (const assetId of assets) {
-    await Asset.findByIdAndUpdate(assetId, { status: "IN_USE" });
-    await AssetLog.create({
-      asset: assetId,
-      workOrder: wo._id,
-      action: "ASSIGNED",
-    });
-  }
+  // 🔥 CHỈ GỌI 1 CHỖ DUY NHẤT
+  await assignAssetsToWorkOrder({
+    assetIds: assets,
+    workOrderId: wo._id,
+    action: "ASSIGNED",
+    note: "Assigned manually",
+  });
 
   res.json(wo);
 };
@@ -807,6 +810,7 @@ exports.rejectReview = async (req, res) => {
 
   wo.status = "IN_PROGRESS";
   wo.signature = undefined;
+  wo.verification = undefined;
 
   wo.reviewRejections.push({
     rejectedBy: req.user.id,
@@ -838,8 +842,7 @@ exports.rejectVerification = async (req, res) => {
     return res.status(400).json({ message: "Not verified yet" });
   }
 
-  // 🔁 ROLLBACK KHO
-  await releaseReservedInventory(wo, req.user.id);
+  // ❌ KHÔNG RELEASE INVENTORY (đã OUT rồi)
 
   wo.status = "IN_PROGRESS";
   wo.signature = undefined;
@@ -895,7 +898,9 @@ exports.updateUsedParts = async (req, res) => {
     if (!wo) throw new Error("Work order not found");
 
     if (wo.status !== "IN_PROGRESS") {
-      throw new Error("Only allowed in IN_PROGRESS");
+      throw new Error(
+        "Spare parts can only be modified while work is in progress",
+      );
     }
 
     // OLD & NEW MAP
@@ -966,7 +971,11 @@ exports.updateUsedParts = async (req, res) => {
       await part.save({ session });
     }
 
-    wo.usedParts = usedParts;
+    wo.usedParts = usedParts.map((u) => ({
+      part: u.part,
+      quantity: u.quantity,
+    }));
+
     await wo.save({ session });
 
     await session.commitTransaction();
@@ -996,7 +1005,13 @@ exports.cancelWorkOrder = async (req, res) => {
   }
 
   // 🔁 1. ROLLBACK INVENTORY (nếu đã xuất kho)
-  await releaseReservedInventory(wo, req.user.id);
+  if (
+    ["OPEN", "APPROVED", "ASSIGNED", "IN_PROGRESS", "REVIEWED"].includes(
+      wo.status,
+    )
+  ) {
+    await releaseReservedInventory(wo, req.user.id);
+  }
 
   // 🔁 2. TRẢ ASSET VỀ AVAILABLE
   for (const assetId of wo.assignedAssets || []) {

@@ -33,7 +33,7 @@ r.post(
   "/:id/reject",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.rejectTenantRequest
+  c.rejectTenantRequest,
 );
 
 module.exports = r;

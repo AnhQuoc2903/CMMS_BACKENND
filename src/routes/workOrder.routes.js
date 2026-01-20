@@ -13,7 +13,7 @@ r.patch(
   "/:id/priority",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.updatePriority
+  c.updatePriority,
 );
 
 r.get("/:id", auth, c.getDetail);
@@ -30,7 +30,7 @@ r.patch(
   "/:id/technicians",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.assignTechnicians
+  c.assignTechnicians,
 );
 
 r.patch("/:id/submit", auth, c.submitForApproval);
@@ -39,14 +39,14 @@ r.patch(
   "/:id/approve",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.approveWorkOrder
+  c.approveWorkOrder,
 );
 
 r.patch(
   "/:id/reject",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.rejectWorkOrder
+  c.rejectWorkOrder,
 );
 
 r.patch("/:id/close", auth, requireRole("ADMIN", "MANAGER"), c.closeWorkOrder);
@@ -56,7 +56,7 @@ r.post(
   "/:id/apply-checklist-template",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.applyChecklistTemplate
+  c.applyChecklistTemplate,
 );
 
 r.patch("/:id/review", auth, requireRole("MANAGER"), c.reviewWorkOrder);
@@ -70,7 +70,7 @@ r.get(
   "/:id/my-history",
   auth,
   requireRole("TECHNICIAN"),
-  c.getMyWorkOrderHistory
+  c.getMyWorkOrderHistory,
 );
 
 r.patch("/:id/used-parts", auth, requireRole("TECHNICIAN"), c.updateUsedParts);
@@ -80,13 +80,13 @@ r.post(
   "/:id/hold",
   auth,
   requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
-  c.holdWorkOrder
+  c.holdWorkOrder,
 );
 r.post(
   "/:id/resume",
   auth,
   requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
-  c.resumeWorkOrder
+  c.resumeWorkOrder,
 );
 
 module.exports = r;

@@ -19,7 +19,7 @@ r.patch(
   "/technicians/:id/disable",
   auth,
   requireRole("ADMIN"),
-  c.disableTechnician
+  c.disableTechnician,
 );
 
 // ENABLE: chỉ ADMIN
@@ -27,7 +27,7 @@ r.patch(
   "/technicians/:id/enable",
   auth,
   requireRole("ADMIN"),
-  c.enableTechnician
+  c.enableTechnician,
 );
 
 module.exports = r;

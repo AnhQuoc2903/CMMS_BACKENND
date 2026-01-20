@@ -7,7 +7,7 @@ r.get(
   "/technicians/:id",
   auth,
   requireRole("ADMIN", "MANAGER"),
-  c.getTechnicianLogs
+  c.getTechnicianLogs,
 );
 
 module.exports = r;
