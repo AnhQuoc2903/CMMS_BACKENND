@@ -6,7 +6,12 @@ const c = require("../controllers/tenantRequest.controller");
 /* ======================================================
    LIST (ADMIN / MANAGER)
 ====================================================== */
-r.get("/", auth, requireRole("ADMIN", "MANAGER"), c.getTenantRequests);
+r.get(
+  "/",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER", "MSP_SUPERVISOR"),
+  c.getTenantRequests,
+);
 
 /* ======================================================
    TENANT SUBMIT (PUBLIC)
@@ -18,13 +23,18 @@ r.post("/request", c.submitTenantRequest);
 ====================================================== */
 
 // Building approve
-r.post("/:id/building-approve", auth, requireRole("ADMIN"), c.buildingApprove);
+r.post(
+  "/:id/building-approve",
+  auth,
+  requireRole("BUILDING_MANAGER"),
+  c.buildingApprove,
+);
 
 // MSP review
-r.post("/:id/msp-review", auth, requireRole("MANAGER"), c.mspReview);
+r.post("/:id/msp-review", auth, requireRole("MSP_SUPERVISOR"), c.mspReview);
 
 // Final approve → create WorkOrder
-r.post("/:id/final-approve", auth, requireRole("ADMIN"), c.finalApprove);
+r.post("/:id/final-approve", auth, requireRole("SUPER_ADMIN"), c.finalApprove);
 
 /* ======================================================
    REJECT
@@ -32,7 +42,7 @@ r.post("/:id/final-approve", auth, requireRole("ADMIN"), c.finalApprove);
 r.post(
   "/:id/reject",
   auth,
-  requireRole("ADMIN", "MANAGER"),
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
   c.rejectTenantRequest,
 );
 

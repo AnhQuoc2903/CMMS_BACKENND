@@ -5,8 +5,17 @@ const ROLES = require("../config/roles");
 const schema = new mongoose.Schema(
   {
     name: String,
-    email: { type: String, unique: true },
-    password: String,
+
+    email: {
+      type: String,
+      unique: true,
+      required: true,
+    },
+
+    password: {
+      type: String,
+      required: true,
+    },
 
     role: {
       type: String,
@@ -21,7 +30,7 @@ const schema = new mongoose.Schema(
       default: "ACTIVE",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 schema.pre("save", async function () {

@@ -1,25 +1,31 @@
 const User = require("../models/User");
-const ROLES = require("../config/roles");
 const Asset = require("../models/Asset");
+const ROLES = require("../config/roles");
 
 module.exports = async () => {
   /* ================= USERS ================= */
 
   const users = [
     {
-      name: "Admin",
+      name: "Super Admin",
       email: "admin@cmms.com",
       password: "123456",
-      role: ROLES.ADMIN,
+      role: ROLES.SUPER_ADMIN,
     },
     {
-      name: "Manager",
-      email: "manager@cmms.com",
+      name: "Building Manager",
+      email: "bm@cmms.com",
       password: "123456",
-      role: ROLES.MANAGER,
+      role: ROLES.BUILDING_MANAGER,
     },
     {
-      name: "Technician A",
+      name: "MSP Supervisor",
+      email: "msp@cmms.com",
+      password: "123456",
+      role: ROLES.MSP_SUPERVISOR,
+    },
+    {
+      name: "Technician",
       email: "tech@cmms.com",
       password: "123456",
       role: ROLES.TECHNICIAN,
@@ -29,37 +35,18 @@ module.exports = async () => {
 
   for (const u of users) {
     const exists = await User.findOne({ email: u.email });
-
     if (!exists) {
       await User.create(u);
-      console.log(`✅ ${u.role} seeded (${u.email})`);
-    } else {
-      console.log(`ℹ️ ${u.role} already exists (${u.email})`);
+      console.log(`✅ ${u.role} seeded`);
     }
   }
 
   /* ================= ASSETS ================= */
-
-  const assetCount = await Asset.countDocuments();
-
-  if (assetCount === 0) {
+  if ((await Asset.countDocuments()) === 0) {
     await Asset.insertMany([
-      {
-        name: "Pump",
-        code: "P-001",
-        category: "Pump",
-        location: "Plant A",
-      },
-      {
-        name: "Motor",
-        code: "M-002",
-        category: "Motor",
-        location: "Plant B",
-      },
+      { name: "Pump", code: "P-001", location: "Plant A" },
+      { name: "Motor", code: "M-002", location: "Plant B" },
     ]);
-
     console.log("✅ Assets seeded");
-  } else {
-    console.log("ℹ️ Assets already exist");
   }
 };

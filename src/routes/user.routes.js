@@ -6,19 +6,29 @@ const c = require("../controllers/user.controller");
 // ================= TECHNICIANS =================
 
 // GET: ADMIN + MANAGER xem danh sách
-r.get("/technicians", auth, requireRole("ADMIN", "MANAGER"), c.getTechnicians);
+r.get(
+  "/technicians",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.getTechnicians,
+);
 
 // CREATE: chỉ ADMIN tạo
-r.post("/technicians", auth, requireRole("ADMIN"), c.createTechnician);
+r.post("/technicians", auth, requireRole("SUPER_ADMIN"), c.createTechnician);
 
 // UPDATE: chỉ ADMIN
-r.patch("/technicians/:id", auth, requireRole("ADMIN"), c.updateTechnician);
+r.patch(
+  "/technicians/:id",
+  auth,
+  requireRole("SUPER_ADMIN"),
+  c.updateTechnician,
+);
 
 // DISABLE: chỉ ADMIN
 r.patch(
   "/technicians/:id/disable",
   auth,
-  requireRole("ADMIN"),
+  requireRole("SUPER_ADMIN"),
   c.disableTechnician,
 );
 
@@ -26,7 +36,7 @@ r.patch(
 r.patch(
   "/technicians/:id/enable",
   auth,
-  requireRole("ADMIN"),
+  requireRole("SUPER_ADMIN"),
   c.enableTechnician,
 );
 

@@ -153,9 +153,13 @@ exports.updatePriority = async (req, res) => {
   if (!wo) return res.status(404).json({ message: "Not found" });
 
   // ❗ Chỉ cho đổi khi WO CHƯA CHẠY
-  if (!["OPEN", "PENDING_APPROVAL", "APPROVED"].includes(wo.status)) {
+  if (
+    ["IN_PROGRESS", "COMPLETED", "REVIEWED", "VERIFIED", "CLOSED"].includes(
+      wo.status,
+    )
+  ) {
     return res.status(400).json({
-      message: "Cannot change priority at this stage",
+      message: "Cannot change priority after work has started",
     });
   }
 

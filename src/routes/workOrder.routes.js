@@ -1,71 +1,78 @@
 const r = require("express").Router();
 const auth = require("../middlewares/auth.middleware");
-const c = require("../controllers/workOrder.controller");
 const requireRole = require("../middlewares/role.middleware");
+const c = require("../controllers/workOrder.controller");
 const { uploadImage } = require("../config/cloudinary");
 
-// ✅ GET LIST (CÁI BẠN ĐANG THIẾU)
+/* ================= GET LIST ================= */
 r.get("/", auth, c.getAll);
 
-r.post("/", auth, requireRole("ADMIN", "MANAGER"), c.create);
+/* ================= CREATE ================= */
+r.post("/", auth, requireRole("SUPER_ADMIN", "BUILDING_MANAGER"), c.create);
 
-r.patch(
-  "/:id/priority",
-  auth,
-  requireRole("ADMIN", "MANAGER"),
-  c.updatePriority,
-);
+/* ================= PRIORITY ================= */
+r.patch("/:id/priority", auth, requireRole("SUPER_ADMIN"), c.updatePriority);
 
+/* ================= DETAIL ================= */
 r.get("/:id", auth, c.getDetail);
 
-r.patch("/:id/checklist", auth, c.updateChecklist);
+/* ================= ASSIGN ================= */
+r.patch("/:id/assets", auth, requireRole("SUPER_ADMIN"), c.assignAssets);
 
-r.get("/:id/pdf", auth, c.exportPDF);
-
-r.patch("/:id/assets", auth, c.assignAssets);
-
-r.post("/:id/photo", auth, uploadImage.single("photo"), c.uploadPhoto);
-r.post("/:id/signature", auth, c.uploadSignature);
 r.patch(
   "/:id/technicians",
   auth,
-  requireRole("ADMIN", "MANAGER"),
+  requireRole("SUPER_ADMIN"),
   c.assignTechnicians,
 );
 
-r.patch("/:id/submit", auth, c.submitForApproval);
-
+/* ================= SUBMIT / APPROVE ================= */
 r.patch(
-  "/:id/approve",
+  "/:id/submit",
   auth,
-  requireRole("ADMIN", "MANAGER"),
-  c.approveWorkOrder,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.submitForApproval,
 );
 
-r.patch(
-  "/:id/reject",
-  auth,
-  requireRole("ADMIN", "MANAGER"),
-  c.rejectWorkOrder,
-);
+r.patch("/:id/approve", auth, requireRole("SUPER_ADMIN"), c.approveWorkOrder);
 
-r.patch("/:id/close", auth, requireRole("ADMIN", "MANAGER"), c.closeWorkOrder);
+r.patch("/:id/reject", auth, requireRole("SUPER_ADMIN"), c.rejectWorkOrder);
+
+/* ================= START & EXECUTION ================= */
 r.patch("/:id/start", auth, requireRole("TECHNICIAN"), c.startWorkOrder);
 
+r.patch("/:id/checklist", auth, requireRole("TECHNICIAN"), c.updateChecklist);
+
 r.post(
-  "/:id/apply-checklist-template",
+  "/:id/photo",
   auth,
-  requireRole("ADMIN", "MANAGER"),
-  c.applyChecklistTemplate,
+  requireRole("TECHNICIAN"),
+  uploadImage.single("photo"),
+  c.uploadPhoto,
 );
 
-r.patch("/:id/review", auth, requireRole("MANAGER"), c.reviewWorkOrder);
+r.post("/:id/signature", auth, requireRole("TECHNICIAN"), c.uploadSignature);
 
-r.patch("/:id/verify", auth, requireRole("ADMIN"), c.verifyWorkOrder);
+/* ================= REVIEW / VERIFY ================= */
+r.patch("/:id/review", auth, requireRole("MSP_SUPERVISOR"), c.reviewWorkOrder);
 
-r.patch("/:id/review-reject", auth, requireRole("MANAGER"), c.rejectReview);
+r.patch(
+  "/:id/review-reject",
+  auth,
+  requireRole("MSP_SUPERVISOR"),
+  c.rejectReview,
+);
 
-r.patch("/:id/verify-reject", auth, requireRole("ADMIN"), c.rejectVerification);
+r.patch("/:id/verify", auth, requireRole("SUPER_ADMIN"), c.verifyWorkOrder);
+
+r.patch(
+  "/:id/verify-reject",
+  auth,
+  requireRole("SUPER_ADMIN"),
+  c.rejectVerification,
+);
+
+/* ================= HISTORY ================= */
 r.get(
   "/:id/my-history",
   auth,
@@ -73,20 +80,47 @@ r.get(
   c.getMyWorkOrderHistory,
 );
 
+/* ================= INVENTORY ================= */
 r.patch("/:id/used-parts", auth, requireRole("TECHNICIAN"), c.updateUsedParts);
 
-r.post("/:id/cancel", auth, requireRole("ADMIN", "MANAGER"), c.cancelWorkOrder);
+/* ================= CLOSE / CANCEL ================= */
+r.patch(
+  "/:id/close",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.closeWorkOrder,
+);
+
+r.post(
+  "/:id/cancel",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.cancelWorkOrder,
+);
+
+/* ================= HOLD / RESUME ================= */
 r.post(
   "/:id/hold",
   auth,
-  requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
+  requireRole("SUPER_ADMIN", "TECHNICIAN"),
   c.holdWorkOrder,
 );
+
 r.post(
   "/:id/resume",
   auth,
-  requireRole("ADMIN", "MANAGER", "TECHNICIAN"),
+  requireRole("SUPER_ADMIN", "TECHNICIAN"),
   c.resumeWorkOrder,
 );
+
+r.post(
+  "/:id/apply-checklist-template",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.applyChecklistTemplate,
+);
+
+/* ================= PDF ================= */
+r.get("/:id/pdf", auth, c.exportPDF);
 
 module.exports = r;

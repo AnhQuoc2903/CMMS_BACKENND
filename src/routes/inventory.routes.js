@@ -3,22 +3,38 @@ const auth = require("../middlewares/auth.middleware");
 const requireRole = require("../middlewares/role.middleware");
 const c = require("../controllers/inventory.controller");
 
-r.get("/low-stock", auth, c.getLowStock);
+/* ================= LOW STOCK ================= */
+r.get(
+  "/low-stock",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.getLowStock,
+);
 
 /* ================= LIST ================= */
 r.get("/", auth, c.getAll);
 
 /* ================= DETAIL ================= */
-r.get("/:id", auth, c.getDetail);
+r.get(
+  "/:id",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.getDetail,
+);
 
 /* ================= CREATE ================= */
-r.post("/", auth, requireRole("ADMIN", "MANAGER"), c.create);
+r.post("/", auth, requireRole("SUPER_ADMIN"), c.create);
 
 /* ================= UPDATE ================= */
-r.patch("/:id", auth, requireRole("ADMIN", "MANAGER"), c.update);
+r.patch("/:id", auth, requireRole("SUPER_ADMIN"), c.update);
 
-r.patch("/:id/disable", auth, requireRole("ADMIN", "MANAGER"), c.disable);
-r.patch("/:id/enable", auth, requireRole("ADMIN", "MANAGER"), c.enable);
-r.post("/:id/stock-in", auth, requireRole("ADMIN", "MANAGER"), c.stockIn);
+/* ================= DISABLE ================= */
+r.patch("/:id/disable", auth, requireRole("SUPER_ADMIN"), c.disable);
+
+/* ================= ENABLE ================= */
+r.patch("/:id/enable", auth, requireRole("SUPER_ADMIN"), c.enable);
+
+/* ================= STOCK IN ================= */
+r.post("/:id/stock-in", auth, requireRole("SUPER_ADMIN"), c.stockIn);
 
 module.exports = r;

@@ -3,10 +3,19 @@ const auth = require("../middlewares/auth.middleware");
 const requireRole = require("../middlewares/role.middleware");
 const c = require("../controllers/checklistTemplate.controller");
 
-r.get("/", auth, requireRole("ADMIN"), c.getAll);
-r.post("/", auth, requireRole("ADMIN"), c.create);
-r.put("/:id", auth, requireRole("ADMIN"), c.update);
-r.patch("/:id/toggle", auth, requireRole("ADMIN"), c.toggle);
-r.delete("/:id", auth, requireRole("ADMIN"), c.remove);
+/* ================= LIST ================= */
+r.get("/", auth, requireRole("SUPER_ADMIN"), c.getAll);
+
+/* ================= CREATE ================= */
+r.post("/", auth, requireRole("SUPER_ADMIN"), c.create);
+
+/* ================= UPDATE ================= */
+r.put("/:id", auth, requireRole("SUPER_ADMIN"), c.update);
+
+/* ================= TOGGLE ACTIVE ================= */
+r.patch("/:id/toggle", auth, requireRole("SUPER_ADMIN"), c.toggle);
+
+/* ================= DELETE ================= */
+r.delete("/:id", auth, requireRole("SUPER_ADMIN"), c.remove);
 
 module.exports = r;
