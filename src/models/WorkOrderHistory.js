@@ -7,6 +7,7 @@ const WorkOrderHistorySchema = new mongoose.Schema(
       ref: "WorkOrder",
       required: true,
     },
+
     action: {
       type: String,
       enum: [
@@ -14,27 +15,32 @@ const WorkOrderHistorySchema = new mongoose.Schema(
         "SUBMIT",
         "APPROVE",
         "REJECT",
-        "ASSIGN",
+        "ASSIGN_TECHNICIAN",
+        "ASSIGN_ASSET",
         "START",
         "HOLD",
         "RESUME",
-        "REWORK",
         "COMPLETE",
         "REVIEW",
+        "REVIEW_REJECT",
         "VERIFY",
+        "VERIFY_REJECT",
         "CLOSE",
         "CANCEL",
+        "REWORK",
       ],
       required: true,
     },
+
     performedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
+
     note: String,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("WorkOrderHistory", WorkOrderHistorySchema);

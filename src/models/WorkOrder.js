@@ -54,6 +54,19 @@ module.exports = mongoose.model(
         type: Date,
       },
 
+      slaStartAt: Date,
+      slaDueAt: Date,
+
+      sla: {
+        breached: { type: Boolean, default: false },
+        breachedAt: Date,
+        breachReason: String,
+        endType: {
+          type: String,
+          enum: ["CLOSED", "CANCELLED"],
+        },
+      },
+
       holdReason: {
         type: String,
         trim: true,
@@ -210,6 +223,6 @@ module.exports = mongoose.model(
 
       closedAt: Date,
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

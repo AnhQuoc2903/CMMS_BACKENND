@@ -123,4 +123,18 @@ r.post(
 /* ================= PDF ================= */
 r.get("/:id/pdf", auth, c.exportPDF);
 
+r.get(
+  "/:id/timeline",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER", "MSP_SUPERVISOR"),
+  c.getTimeline,
+);
+
+r.get(
+  "/:id/sla-timeline",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.getSLATimeline,
+);
+
 module.exports = r;

@@ -11,6 +11,7 @@ const SparePart = require("../models/SparePart");
 const User = require("../models/User");
 const InventoryLog = require("../models/InventoryLog");
 const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
+const SLALog = require("../models/SLALog");
 
 const PRIORITY_SLA = {
   CRITICAL: 2,
@@ -36,32 +37,6 @@ async function releaseReservedInventory(workOrder, userId) {
     await InventoryLog.create({
       sparePart: spare._id,
       type: "RELEASE",
-      quantity: item.quantity,
-      beforeQty: before,
-      afterQty: spare.reservedQuantity,
-      workOrder: workOrder._id,
-      performedBy: userId,
-    });
-  }
-}
-
-async function reserveInventory(workOrder, userId) {
-  for (const item of workOrder.usedParts || []) {
-    const spare = await SparePart.findById(item.part);
-    if (!spare) continue;
-
-    const available = spare.quantity - (spare.reservedQuantity || 0);
-    if (available < item.quantity) {
-      throw new Error(`Not enough stock for ${spare.name}`);
-    }
-
-    const before = spare.reservedQuantity || 0;
-    spare.reservedQuantity = before + item.quantity;
-    await spare.save();
-
-    await InventoryLog.create({
-      sparePart: spare._id,
-      type: "RESERVE",
       quantity: item.quantity,
       beforeQty: before,
       afterQty: spare.reservedQuantity,
@@ -130,9 +105,14 @@ exports.create = async (req, res) => {
     ...req.body,
     priority,
     slaHours,
-    dueAt: new Date(Date.now() + slaHours * 60 * 60 * 1000),
     createdBy: req.user.id,
     status: "OPEN",
+  });
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "CREATE",
+    performedBy: req.user.id,
   });
 
   res.json(wo);
@@ -165,9 +145,14 @@ exports.updatePriority = async (req, res) => {
 
   const slaHours = PRIORITY_SLA[priority];
 
+  if (wo.slaStartAt) {
+    return res.status(400).json({
+      message: "Cannot change priority after SLA has started",
+    });
+  }
+
   wo.priority = priority;
   wo.slaHours = slaHours;
-  wo.dueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000);
 
   await wo.save();
   res.json(wo);
@@ -192,6 +177,16 @@ exports.getDetail = async (req, res) => {
     return res.status(404).json({ message: "Work order not found" });
   }
 
+  // 🔧 AUTO FIX SLA HOURS IF MISSING (legacy data)
+  if (
+    (!wo.slaHours || typeof wo.slaHours !== "number") &&
+    wo.priority &&
+    PRIORITY_SLA[wo.priority]
+  ) {
+    wo.slaHours = PRIORITY_SLA[wo.priority];
+    await wo.save();
+  }
+
   res.json(wo);
 };
 
@@ -208,6 +203,11 @@ exports.submitForApproval = async (req, res) => {
 
   wo.status = "PENDING_APPROVAL";
   await wo.save();
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "SUBMIT",
+    performedBy: req.user.id,
+  });
   res.json(wo);
 };
 
@@ -219,13 +219,50 @@ exports.approveWorkOrder = async (req, res) => {
     return res.status(400).json({ message: "Not pending approval" });
   }
 
+  // ✅ HARD GUARD
+  if (!wo.slaHours || typeof wo.slaHours !== "number") {
+    return res.status(400).json({
+      message: "SLA hours is missing or invalid. Please check priority.",
+    });
+  }
+
+  const approvedAt = new Date();
+
+  const slaStartAt = approvedAt;
+  const slaDueAt = new Date(
+    slaStartAt.getTime() + wo.slaHours * 60 * 60 * 1000,
+  );
+
+  if (isNaN(slaDueAt.getTime())) {
+    return res.status(400).json({
+      message: "Invalid SLA due date calculation",
+    });
+  }
+
+  wo.slaStartAt = slaStartAt;
+  wo.slaDueAt = slaDueAt;
+  wo.sla = { breached: false };
+
   wo.status = "APPROVED";
   wo.approval = {
     approvedBy: req.user.id,
-    approvedAt: new Date(),
+    approvedAt,
   };
 
   await wo.save();
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "APPROVE",
+    performedBy: req.user.id,
+  });
+
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "START",
+    note: `SLA started at approval (${wo.slaHours}h)`,
+  });
+
   res.json(wo);
 };
 
@@ -250,6 +287,12 @@ exports.rejectWorkOrder = async (req, res) => {
   };
 
   await wo.save();
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "REJECT",
+    performedBy: req.user.id,
+    note: reason,
+  });
   res.json(wo);
 };
 
@@ -312,6 +355,12 @@ exports.assignTechnicians = async (req, res) => {
     "name email status",
   );
 
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "ASSIGN_TECHNICIAN",
+    performedBy: req.user.id,
+  });
+
   res.json(populated);
 };
 
@@ -351,6 +400,12 @@ exports.assignAssets = async (req, res) => {
     workOrderId: wo._id,
     action: "ASSIGNED",
     note: "Assigned manually",
+  });
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "ASSIGN_ASSET",
+    performedBy: req.user.id,
   });
 
   res.json(wo);
@@ -395,6 +450,18 @@ exports.startWorkOrder = async (req, res) => {
   // 5️⃣ OK → START
   wo.status = "IN_PROGRESS";
   await wo.save();
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "START",
+    performedBy: req.user.id,
+  });
+
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "CHECKPOINT",
+    note: "Work started",
+  });
 
   res.json(wo);
 };
@@ -511,6 +578,12 @@ exports.uploadSignature = async (req, res) => {
   wo.status = "COMPLETED";
 
   await wo.save();
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "COMPLETE",
+    performedBy: req.user.id,
+  });
+
   res.json(wo);
 };
 
@@ -527,11 +600,9 @@ exports.closeWorkOrder = async (req, res) => {
     });
   }
 
-  // 🔁 TRẢ ASSET VỀ AVAILABLE
+  // 🔁 RETURN ASSETS
   for (const assetId of wo.assignedAssets) {
-    await Asset.findByIdAndUpdate(assetId, {
-      status: "AVAILABLE",
-    });
+    await Asset.findByIdAndUpdate(assetId, { status: "AVAILABLE" });
 
     await AssetLog.create({
       asset: assetId,
@@ -541,10 +612,37 @@ exports.closeWorkOrder = async (req, res) => {
     });
   }
 
+  const now = new Date();
+
+  // ===== SLA FINAL EVALUATION =====
+
+  if (wo.slaDueAt && now > wo.slaDueAt) {
+    if (!wo.sla?.breached) {
+      wo.sla = {
+        breached: true,
+        breachedAt: now,
+        breachReason: "CLOSED_LATE",
+      };
+
+      await SLALog.create({
+        workOrder: wo._id,
+        type: "BREACH",
+        note: "SLA breached at closing",
+      });
+    }
+  }
+
   wo.status = "CLOSED";
   wo.closedBy = req.user.id;
-  wo.closedAt = new Date();
+  wo.closedAt = now;
+
   await wo.save();
+
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "CLOSE",
+    performedBy: req.user.id,
+  });
 
   res.json(wo);
 };
@@ -759,6 +857,18 @@ exports.reviewWorkOrder = async (req, res) => {
   };
 
   await wo.save();
+  await WorkOrderHistory.create({
+    workOrder: wo._id,
+    action: "REVIEW",
+    performedBy: req.user.id,
+    note,
+  });
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "CHECKPOINT",
+    note: "Reviewed successfully",
+  });
+
   res.json(wo);
 };
 
@@ -784,6 +894,18 @@ exports.verifyWorkOrder = async (req, res) => {
     };
 
     await wo.save({ session });
+
+    await WorkOrderHistory.create({
+      workOrder: wo._id,
+      action: "VERIFY",
+      performedBy: req.user.id,
+    });
+
+    await SLALog.create({
+      workOrder: wo._id,
+      type: "CHECKPOINT",
+      note: "Verified successfully",
+    });
 
     await session.commitTransaction();
     session.endSession();
@@ -830,6 +952,12 @@ exports.rejectReview = async (req, res) => {
   });
 
   await wo.save();
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "REWORK",
+    note: "Work order sent back for rework",
+  });
+
   res.json(wo);
 };
 
@@ -865,6 +993,12 @@ exports.rejectVerification = async (req, res) => {
   });
 
   await wo.save();
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "REWORK",
+    note: "Work order sent back for rework",
+  });
+
   res.json(wo);
 };
 
@@ -1043,7 +1177,19 @@ exports.cancelWorkOrder = async (req, res) => {
   wo.cancelledAt = new Date();
   wo.cancelledBy = req.user.id;
 
+  wo.sla = {
+    ...wo.sla,
+    endType: "CANCELLED",
+  };
+
   await wo.save();
+
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "CANCEL",
+    note: "SLA stopped due to cancellation",
+  });
+
   res.json(wo);
 };
 
@@ -1072,6 +1218,11 @@ exports.holdWorkOrder = async (req, res) => {
   });
 
   await wo.save();
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "PAUSE",
+    note: "SLA paused due to ON_HOLD",
+  });
   res.json(wo);
 };
 
@@ -1084,14 +1235,15 @@ exports.resumeWorkOrder = async (req, res) => {
 
   wo.status = "IN_PROGRESS";
 
-  if (wo.slaPausedAt && wo.dueAt) {
+  if (wo.slaPausedAt && wo.slaDueAt) {
     const pausedMs = Date.now() - wo.slaPausedAt.getTime();
 
     wo.slaPausedTotal = (wo.slaPausedTotal || 0) + pausedMs;
     wo.slaPausedAt = null;
 
-    wo.dueAt = new Date(wo.dueAt.getTime() + pausedMs);
+    wo.slaDueAt = new Date(wo.slaDueAt.getTime() + pausedMs);
   }
+
   // 🧾 AUDIT
   await WorkOrderHistory.create({
     workOrder: wo._id,
@@ -1101,5 +1253,29 @@ exports.resumeWorkOrder = async (req, res) => {
   });
 
   await wo.save();
+  await SLALog.create({
+    workOrder: wo._id,
+    type: "RESUME",
+    note: "SLA resumed",
+  });
+
   res.json(wo);
+};
+
+exports.getTimeline = async (req, res) => {
+  const history = await WorkOrderHistory.find({
+    workOrder: req.params.id,
+  })
+    .populate("performedBy", "name role email")
+    .sort({ createdAt: 1 });
+
+  res.json(history);
+};
+
+exports.getSLATimeline = async (req, res) => {
+  const logs = await SLALog.find({
+    workOrder: req.params.id,
+  }).sort({ createdAt: 1 });
+
+  res.json(logs);
 };

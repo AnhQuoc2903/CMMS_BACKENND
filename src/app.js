@@ -24,9 +24,11 @@ app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/audit", require("./routes/audit.routes"));
 app.use(
   "/api/checklist-templates",
-  require("./routes/checklistTemplate.route")
+  require("./routes/checklistTemplate.route"),
 );
 app.use("/api/inventory-logs", require("./routes/inventoryLog.routes"));
 app.use("/api/maintenance-plans", require("./routes/maintenancePlan.routes"));
+app.use("/api/reports", require("./routes/report.routes"));
+app.use("/api/sla", require("./routes/sla.routes"));
 
 module.exports = app;
