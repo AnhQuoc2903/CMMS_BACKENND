@@ -12,6 +12,7 @@ const User = require("../models/User");
 const InventoryLog = require("../models/InventoryLog");
 const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
 const SLALog = require("../models/SLALog");
+const eventBus = require("../events/eventBus");
 
 const PRIORITY_SLA = {
   CRITICAL: 2,
@@ -263,6 +264,10 @@ exports.approveWorkOrder = async (req, res) => {
     note: `SLA started at approval (${wo.slaHours}h)`,
   });
 
+  eventBus.emit("WORK_ORDER_APPROVED", {
+    workOrder: wo,
+  });
+
   res.json(wo);
 };
 
@@ -359,6 +364,11 @@ exports.assignTechnicians = async (req, res) => {
     workOrder: wo._id,
     action: "ASSIGN_TECHNICIAN",
     performedBy: req.user.id,
+  });
+
+  eventBus.emit("TECHNICIAN_ASSIGNED", {
+    workOrder: wo,
+    technicians: populated.assignedTechnicians,
   });
 
   res.json(populated);

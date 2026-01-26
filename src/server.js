@@ -7,6 +7,7 @@ const seed = require("./config/seed");
 
 const checkSLABreach = require("./cron/slaBreach.cron");
 require("./cron/pm.cron");
+require("./events/notification.events");
 
 (async () => {
   await connectDB();

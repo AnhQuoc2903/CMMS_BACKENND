@@ -5,6 +5,7 @@ const WorkOrder = require("../models/WorkOrder");
 const Asset = require("../models/Asset");
 const MaintenancePlanLog = require("../models/MaintenancePlanLog");
 const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
+const eventBus = require("../events/eventBus");
 
 exports.getPlanWorkOrders = async (req, res) => {
   const workOrders = await WorkOrder.find({
@@ -156,6 +157,10 @@ exports.runNow = async (req, res) => {
       maintenancePlan: plan._id,
       createdBy: req.user.id,
       status: "ASSIGNED",
+    });
+
+    eventBus.emit("PM_CREATED", {
+      workOrder: wo,
     });
 
     /**

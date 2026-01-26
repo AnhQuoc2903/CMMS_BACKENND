@@ -1,5 +1,6 @@
 const WorkOrder = require("../models/WorkOrder");
 const SLALog = require("../models/SLALog");
+const eventBus = require("../events/eventBus");
 
 module.exports = async () => {
   try {
@@ -31,6 +32,9 @@ module.exports = async () => {
         workOrder: wo._id,
         type: "BREACH",
         note: "SLA breached automatically by cron (time exceeded)",
+      });
+      eventBus.emit("SLA_BREACHED", {
+        workOrder: wo,
       });
     }
   } catch (err) {

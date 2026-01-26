@@ -1,5 +1,6 @@
 const TenantRequest = require("../models/TenantRequest");
 const WorkOrder = require("../models/WorkOrder");
+const eventBus = require("../events/eventBus");
 
 /* ======================================================
    TENANT SUBMIT
@@ -17,6 +18,10 @@ exports.submitTenantRequest = async (req, res) => {
     tenantName,
     tenantEmail,
     status: "SUBMITTED",
+  });
+
+  eventBus.emit("TENANT_REQUEST_SUBMITTED", {
+    tenantRequest: tr,
   });
 
   res.json(tr);
