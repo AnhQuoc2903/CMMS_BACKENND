@@ -39,7 +39,7 @@ exports.changePassword = async (req, res) => {
 
   const user = await User.findById(req.user.id);
 
-  const isMatch = await user.comparePassword(oldPassword);
+  const isMatch = await user.compare(oldPassword);
   if (!isMatch) {
     return res.status(400).json({ message: "Old password is incorrect" });
   }
@@ -65,7 +65,7 @@ exports.forgotPassword = async (req, res) => {
     .update(token)
     .digest("hex");
 
-  user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
+  user.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
   await user.save();
 
   const resetLink = `${process.env.FRONTEND_URL}/reset-password/${token}`;
@@ -92,7 +92,7 @@ exports.resetPassword = async (req, res) => {
 
   const user = await User.findOne({
     resetPasswordToken: hashed,
-    resetPasswordExpire: { $gt: Date.now() },
+    resetPasswordExpires: { $gt: Date.now() },
   });
 
   if (!user) {
@@ -101,7 +101,7 @@ exports.resetPassword = async (req, res) => {
 
   user.password = req.body.password;
   user.resetPasswordToken = undefined;
-  user.resetPasswordExpire = undefined;
+  user.resetPasswordExpires = undefined;
 
   await user.save();
   res.json({ success: true });

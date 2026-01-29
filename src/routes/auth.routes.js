@@ -5,6 +5,6 @@ const c = require("../controllers/auth.controller");
 r.post("/login", c.login);
 r.post("/change-password", auth, c.changePassword);
 r.post("/forgot-password", c.forgotPassword);
-r.post("/reset-password", c.resetPassword);
+r.post("/reset-password/:token", c.resetPassword);
 
 module.exports = r;
