@@ -298,6 +298,7 @@ exports.rejectWorkOrder = async (req, res) => {
     performedBy: req.user.id,
     note: reason,
   });
+
   res.json(wo);
 };
 
@@ -370,6 +371,8 @@ exports.assignTechnicians = async (req, res) => {
     workOrder: wo,
     technicians: populated.assignedTechnicians,
   });
+
+  // 🔔 NOTIFICATION
 
   res.json(populated);
 };
@@ -472,6 +475,8 @@ exports.startWorkOrder = async (req, res) => {
     type: "CHECKPOINT",
     note: "Work started",
   });
+
+  eventBus.emit("WORK_ORDER_STARTED", { workOrder: wo });
 
   res.json(wo);
 };
@@ -594,6 +599,8 @@ exports.uploadSignature = async (req, res) => {
     performedBy: req.user.id,
   });
 
+  eventBus.emit("WORK_ORDER_COMPLETED", { workOrder: wo });
+
   res.json(wo);
 };
 
@@ -653,6 +660,8 @@ exports.closeWorkOrder = async (req, res) => {
     action: "CLOSE",
     performedBy: req.user.id,
   });
+
+  eventBus.emit("WORK_ORDER_CLOSED", { workOrder: wo });
 
   res.json(wo);
 };
@@ -879,6 +888,8 @@ exports.reviewWorkOrder = async (req, res) => {
     note: "Reviewed successfully",
   });
 
+  eventBus.emit("WORK_ORDER_REVIEWED", { workOrder: wo });
+
   res.json(wo);
 };
 
@@ -919,6 +930,8 @@ exports.verifyWorkOrder = async (req, res) => {
 
     await session.commitTransaction();
     session.endSession();
+
+    eventBus.emit("WORK_ORDER_VERIFIED", { workOrder: wo });
 
     res.json(wo);
   } catch (err) {
@@ -968,6 +981,11 @@ exports.rejectReview = async (req, res) => {
     note: "Work order sent back for rework",
   });
 
+  eventBus.emit("WORK_ORDER_REWORK", {
+    workOrder: wo,
+    stage: "REVIEW",
+  });
+
   res.json(wo);
 };
 
@@ -1007,6 +1025,11 @@ exports.rejectVerification = async (req, res) => {
     workOrder: wo._id,
     type: "REWORK",
     note: "Work order sent back for rework",
+  });
+
+  eventBus.emit("WORK_ORDER_REWORK", {
+    workOrder: wo,
+    stage: "VERIFICATION",
   });
 
   res.json(wo);
@@ -1200,6 +1223,11 @@ exports.cancelWorkOrder = async (req, res) => {
     note: "SLA stopped due to cancellation",
   });
 
+  eventBus.emit("WORK_ORDER_CANCELLED", {
+    workOrder: wo,
+    reason,
+  });
+
   res.json(wo);
 };
 
@@ -1233,6 +1261,8 @@ exports.holdWorkOrder = async (req, res) => {
     type: "PAUSE",
     note: "SLA paused due to ON_HOLD",
   });
+
+  eventBus.emit("WORK_ORDER_ON_HOLD", { workOrder: wo, reason });
   res.json(wo);
 };
 
@@ -1268,6 +1298,8 @@ exports.resumeWorkOrder = async (req, res) => {
     type: "RESUME",
     note: "SLA resumed",
   });
+
+  eventBus.emit("WORK_ORDER_RESUMED", { workOrder: wo });
 
   res.json(wo);
 };

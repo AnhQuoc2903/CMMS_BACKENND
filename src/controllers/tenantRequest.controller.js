@@ -49,6 +49,9 @@ exports.buildingApprove = async (req, res) => {
   };
 
   await tr.save();
+  eventBus.emit("TENANT_REQUEST_BUILDING_APPROVED", {
+    tenantRequest: tr,
+  });
   res.json(tr);
 };
 
@@ -73,6 +76,10 @@ exports.mspReview = async (req, res) => {
   };
 
   await tr.save();
+
+  eventBus.emit("TENANT_REQUEST_MSP_REVIEWED", {
+    tenantRequest: tr,
+  });
   res.json(tr);
 };
 
@@ -106,6 +113,11 @@ exports.finalApprove = async (req, res) => {
 
   await tr.save();
 
+  eventBus.emit("TENANT_REQUEST_FINAL_APPROVED", {
+    tenantRequest: tr,
+    workOrder: wo,
+  });
+
   res.json({
     tenantRequest: tr,
     workOrder: wo,
@@ -134,6 +146,10 @@ exports.rejectTenantRequest = async (req, res) => {
   tr.handledBy = req.user.id;
 
   await tr.save();
+  eventBus.emit("TENANT_REQUEST_REJECTED", {
+    tenantRequest: tr,
+    reason,
+  });
   res.json(tr);
 };
 

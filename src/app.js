@@ -30,5 +30,5 @@ app.use("/api/inventory-logs", require("./routes/inventoryLog.routes"));
 app.use("/api/maintenance-plans", require("./routes/maintenancePlan.routes"));
 app.use("/api/reports", require("./routes/report.routes"));
 app.use("/api/sla", require("./routes/sla.routes"));
-
+app.use("/api/notifications", require("./routes/notification.routes"));
 module.exports = app;
