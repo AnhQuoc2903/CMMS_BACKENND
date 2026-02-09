@@ -429,6 +429,7 @@ exports.assignAssets = async (req, res) => {
 ====================================================== */
 exports.startWorkOrder = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id);
+  const now = new Date();
 
   if (!wo) {
     return res.status(404).json({ message: "Work order not found" });
@@ -463,6 +464,21 @@ exports.startWorkOrder = async (req, res) => {
   // 5️⃣ OK → START
   wo.status = "IN_PROGRESS";
   await wo.save();
+
+  for (const assetId of wo.assignedAssets) {
+    await Asset.findByIdAndUpdate(assetId, {
+      status: "MAINTENANCE",
+      maintenanceStartAt: now,
+    });
+
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "START_MAINTENANCE",
+      startedAt: now,
+      performedBy: req.user.id,
+    });
+  }
 
   await WorkOrderHistory.create({
     workOrder: wo._id,
@@ -593,6 +609,7 @@ exports.uploadSignature = async (req, res) => {
   wo.status = "COMPLETED";
 
   await wo.save();
+
   await WorkOrderHistory.create({
     workOrder: wo._id,
     action: "COMPLETE",
@@ -618,16 +635,16 @@ exports.closeWorkOrder = async (req, res) => {
   }
 
   // 🔁 RETURN ASSETS
-  for (const assetId of wo.assignedAssets) {
-    await Asset.findByIdAndUpdate(assetId, { status: "AVAILABLE" });
+  // for (const assetId of wo.assignedAssets) {
+  //   await Asset.findByIdAndUpdate(assetId, { status: "AVAILABLE" });
 
-    await AssetLog.create({
-      asset: assetId,
-      workOrder: wo._id,
-      action: "AVAILABLE",
-      performedBy: req.user.id,
-    });
-  }
+  //   await AssetLog.create({
+  //     asset: assetId,
+  //     workOrder: wo._id,
+  //     action: "AVAILABLE",
+  //     performedBy: req.user.id,
+  //   });
+  // }
 
   const now = new Date();
 
@@ -654,6 +671,44 @@ exports.closeWorkOrder = async (req, res) => {
   wo.closedAt = now;
 
   await wo.save();
+
+  for (const assetId of wo.assignedAssets) {
+    const asset = await Asset.findById(assetId);
+    if (!asset) continue;
+
+    // 🔎 tìm START log
+    const startLog = await AssetLog.findOne({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "START_MAINTENANCE",
+    }).sort({ createdAt: -1 });
+
+    const startedAt = startLog?.startedAt || asset.maintenanceStartAt;
+    const endedAt = new Date();
+
+    let downtimeMs = 0;
+    if (startedAt) {
+      downtimeMs = endedAt - new Date(startedAt);
+    }
+
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "END_MAINTENANCE",
+      startedAt,
+      endedAt,
+      downtimeMs,
+      note: "Work order closed",
+      performedBy: req.user.id,
+    });
+
+    // ✅ reset asset (KHÔNG ĐIỀU KIỆN)
+    asset.status = "AVAILABLE";
+    asset.maintenanceStartAt = null;
+    asset.totalDowntimeMs = (asset.totalDowntimeMs || 0) + downtimeMs;
+
+    await asset.save();
+  }
 
   await WorkOrderHistory.create({
     workOrder: wo._id,
@@ -1186,12 +1241,25 @@ exports.cancelWorkOrder = async (req, res) => {
 
   // 🔁 2. TRẢ ASSET VỀ AVAILABLE
   for (const assetId of wo.assignedAssets || []) {
-    await Asset.findByIdAndUpdate(assetId, { status: "AVAILABLE" });
+    const asset = await Asset.findById(assetId);
+
+    if (asset?.maintenanceStartAt) {
+      const end = new Date();
+      const downtimeMs = end - asset.maintenanceStartAt;
+
+      asset.totalDowntimeMs = (asset.totalDowntimeMs || 0) + downtimeMs;
+
+      asset.maintenanceStartAt = null;
+    }
+
+    asset.status = "AVAILABLE";
+    await asset.save();
 
     await AssetLog.create({
       asset: assetId,
       workOrder: wo._id,
-      action: "AVAILABLE",
+      action: "CANCEL_MAINTENANCE",
+      note: reason,
       performedBy: req.user.id,
     });
   }
@@ -1233,21 +1301,19 @@ exports.cancelWorkOrder = async (req, res) => {
 
 exports.holdWorkOrder = async (req, res) => {
   const { reason } = req.body;
-
   const wo = await WorkOrder.findById(req.params.id);
-  if (!wo) return res.status(404).json({ message: "Not found" });
 
-  if (!["ASSIGNED", "IN_PROGRESS"].includes(wo.status)) {
+  if (!wo || !["ASSIGNED", "IN_PROGRESS"].includes(wo.status)) {
     return res.status(400).json({ message: "Cannot hold" });
   }
 
   wo.status = "ON_HOLD";
   wo.holdReason = reason;
   wo.holdAt = new Date();
-
   wo.slaPausedAt = new Date();
 
-  // 🧾 AUDIT TIMELINE
+  await wo.save();
+
   await WorkOrderHistory.create({
     workOrder: wo._id,
     action: "HOLD",
@@ -1255,21 +1321,29 @@ exports.holdWorkOrder = async (req, res) => {
     performedBy: req.user.id,
   });
 
-  await wo.save();
+  for (const assetId of wo.assignedAssets) {
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "PAUSE_MAINTENANCE",
+      note: reason,
+      performedBy: req.user.id,
+    });
+  }
+
   await SLALog.create({
     workOrder: wo._id,
     type: "PAUSE",
-    note: "SLA paused due to ON_HOLD",
+    note: "SLA paused",
   });
 
-  eventBus.emit("WORK_ORDER_ON_HOLD", { workOrder: wo, reason });
   res.json(wo);
 };
 
 exports.resumeWorkOrder = async (req, res) => {
   const wo = await WorkOrder.findById(req.params.id);
 
-  if (wo.status !== "ON_HOLD") {
+  if (!wo || wo.status !== "ON_HOLD") {
     return res.status(400).json({ message: "Not on hold" });
   }
 
@@ -1277,29 +1351,33 @@ exports.resumeWorkOrder = async (req, res) => {
 
   if (wo.slaPausedAt && wo.slaDueAt) {
     const pausedMs = Date.now() - wo.slaPausedAt.getTime();
-
     wo.slaPausedTotal = (wo.slaPausedTotal || 0) + pausedMs;
     wo.slaPausedAt = null;
-
     wo.slaDueAt = new Date(wo.slaDueAt.getTime() + pausedMs);
   }
 
-  // 🧾 AUDIT
+  await wo.save();
+
   await WorkOrderHistory.create({
     workOrder: wo._id,
     action: "RESUME",
-    note: "Work resumed",
     performedBy: req.user.id,
   });
 
-  await wo.save();
+  for (const assetId of wo.assignedAssets) {
+    await AssetLog.create({
+      asset: assetId,
+      workOrder: wo._id,
+      action: "RESUME_MAINTENANCE",
+      performedBy: req.user.id,
+    });
+  }
+
   await SLALog.create({
     workOrder: wo._id,
     type: "RESUME",
     note: "SLA resumed",
   });
-
-  eventBus.emit("WORK_ORDER_RESUMED", { workOrder: wo });
 
   res.json(wo);
 };

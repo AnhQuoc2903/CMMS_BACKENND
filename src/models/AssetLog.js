@@ -15,11 +15,23 @@ module.exports = mongoose.model(
       },
       action: {
         type: String,
-        enum: ["ASSIGNED", "UNASSIGNED", "MAINTAINED", "AVAILABLE"],
+        enum: [
+          "ASSIGNED",
+          "UNASSIGNED",
+          "START_MAINTENANCE",
+          "END_MAINTENANCE",
+          "CANCEL_MAINTENANCE",
+          "RESUME_MAINTENANCE",
+          "PAUSE_MAINTENANCE",
+        ],
         required: true,
       },
+      startedAt: Date,
+      endedAt: Date,
+      downtimeMs: Number,
+
       note: String,
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

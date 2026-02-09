@@ -9,6 +9,13 @@ r.get("/", auth, c.getAll);
 /* ================= CREATE ================= */
 r.post("/", auth, requireRole("SUPER_ADMIN"), c.create);
 
+r.get(
+  "/:id/downtime",
+  auth,
+  requireRole("SUPER_ADMIN", "BUILDING_MANAGER"),
+  c.getAssetDowntimeDetail,
+);
+
 /* ================= DETAIL ================= */
 r.get(
   "/:id",
