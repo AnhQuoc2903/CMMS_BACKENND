@@ -5,7 +5,13 @@ const swaggerSpec = require("./config/swagger");
 
 const app = express();
 
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173", process.env.FRONTEND_URL],
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -31,4 +37,9 @@ app.use("/api/maintenance-plans", require("./routes/maintenancePlan.routes"));
 app.use("/api/reports", require("./routes/report.routes"));
 app.use("/api/sla", require("./routes/sla.routes"));
 app.use("/api/notifications", require("./routes/notification.routes"));
+
+app.get("/", (req, res) => {
+  res.send("CMMS Backend is running 🚀");
+});
+
 module.exports = app;
