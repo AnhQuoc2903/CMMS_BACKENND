@@ -41,6 +41,6 @@ module.exports = mongoose.model(
         required: true,
       },
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

@@ -35,6 +35,6 @@ module.exports = mongoose.model(
         ref: "User",
       },
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

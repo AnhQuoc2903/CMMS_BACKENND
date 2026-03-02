@@ -49,6 +49,6 @@ module.exports = mongoose.model(
         ref: "WorkOrder",
       },
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

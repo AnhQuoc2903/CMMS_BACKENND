@@ -16,6 +16,6 @@ module.exports = mongoose.model(
         default: "AVAILABLE",
       },
     },
-    { timestamps: true }
-  )
+    { timestamps: true },
+  ),
 );

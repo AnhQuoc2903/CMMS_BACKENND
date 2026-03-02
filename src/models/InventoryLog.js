@@ -34,7 +34,7 @@ const InventoryLogSchema = new mongoose.Schema(
 
     note: String,
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 module.exports = mongoose.model("InventoryLog", InventoryLogSchema);
