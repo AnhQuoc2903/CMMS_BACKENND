@@ -14,6 +14,12 @@ module.exports = mongoose.model(
         },
       ],
 
+      frequencyType: {
+        type: String,
+        enum: ["STANDARD", "INTERVAL"],
+        default: "STANDARD",
+      },
+
       frequency: {
         type: String,
         enum: ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"],

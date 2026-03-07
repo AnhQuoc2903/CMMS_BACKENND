@@ -13,6 +13,7 @@ const InventoryLog = require("../models/InventoryLog");
 const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
 const SLALog = require("../models/SLALog");
 const eventBus = require("../events/eventBus");
+const { consumeBatch } = require("../utils/inventoryConsume.util");
 
 const PRIORITY_SLA = {
   CRITICAL: 2,
@@ -55,6 +56,14 @@ async function consumeInventory(workOrder, userId, session) {
     const beforeQty = spare.quantity;
     const beforeReserved = spare.reservedQuantity || 0;
 
+    /* 🔥 FIFO / LIFO batch consume */
+    await consumeBatch({
+      partId: spare._id,
+      quantity: item.quantity,
+      method: spare.inventoryMethod,
+    });
+
+    /* update total stock */
     spare.quantity = Math.max(spare.quantity - item.quantity, 0);
     spare.reservedQuantity = Math.max(beforeReserved - item.quantity, 0);
 

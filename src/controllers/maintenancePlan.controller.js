@@ -29,16 +29,36 @@ exports.getAll = async (req, res) => {
 
 /* ===== CREATE ===== */
 exports.create = async (req, res) => {
-  const { name, assets, frequency, checklistTemplate, startDate } = req.body;
+  const {
+    name,
+    assets,
+    frequencyType,
+    frequency,
+    intervalValue,
+    intervalUnit,
+    checklistTemplate,
+    startDate,
+  } = req.body;
 
-  if (!name || !assets?.length || !frequency) {
+  if (!name || !assets?.length) {
     return res.status(400).json({ message: "Invalid maintenance plan" });
+  }
+
+  if (frequencyType === "STANDARD" && !frequency) {
+    return res.status(400).json({ message: "Frequency required" });
+  }
+
+  if (frequencyType === "INTERVAL" && (!intervalValue || !intervalUnit)) {
+    return res.status(400).json({ message: "Interval configuration required" });
   }
 
   const plan = await MaintenancePlan.create({
     name,
     assets,
+    frequencyType,
     frequency,
+    intervalValue,
+    intervalUnit,
     checklistTemplate,
     nextRunAt: startDate ? new Date(startDate) : new Date(),
     createdBy: req.user.id,
@@ -60,18 +80,34 @@ exports.toggle = async (req, res) => {
 
 exports.update = async (req, res) => {
   const { id } = req.params;
-  const { name, assets, frequency, checklistTemplate, nextRunAt } = req.body;
+
+  const {
+    name,
+    assets,
+    frequencyType,
+    frequency,
+    intervalValue,
+    intervalUnit,
+    checklistTemplate,
+    nextRunAt,
+  } = req.body;
 
   const plan = await MaintenancePlan.findById(id);
+
   if (!plan) {
     return res.status(404).json({ message: "Maintenance plan not found" });
   }
 
   if (name !== undefined) plan.name = name;
   if (assets !== undefined) plan.assets = assets;
+  if (frequencyType !== undefined) plan.frequencyType = frequencyType;
   if (frequency !== undefined) plan.frequency = frequency;
+  if (intervalValue !== undefined) plan.intervalValue = intervalValue;
+  if (intervalUnit !== undefined) plan.intervalUnit = intervalUnit;
+
   if (checklistTemplate !== undefined)
     plan.checklistTemplate = checklistTemplate || null;
+
   if (nextRunAt !== undefined) plan.nextRunAt = new Date(nextRunAt);
 
   await plan.save();
@@ -121,7 +157,7 @@ exports.runNow = async (req, res) => {
 
     plan.lastRunAt = now;
     plan.lastRunStatus = "SKIPPED_ASSET_BUSY";
-    plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan.frequency);
+    plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan);
     await plan.save();
 
     return res.json({
@@ -206,7 +242,7 @@ exports.runNow = async (req, res) => {
      */
     plan.lastRunAt = now;
     plan.lastRunStatus = "SUCCESS";
-    plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan.frequency);
+    plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan);
     await plan.save();
 
     res.json(wo);

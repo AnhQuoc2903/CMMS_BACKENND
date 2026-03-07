@@ -7,13 +7,25 @@ exports.login = async (req, res) => {
   const { email, password } = req.body;
 
   const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ message: "Invalid login" });
+
+  if (!user) {
+    return res.status(400).json({
+      message: "Incorrect email or password",
+    });
+  }
 
   const ok = await user.compare(password);
-  if (!ok) return res.status(400).json({ message: "Invalid login" });
+
+  if (!ok) {
+    return res.status(400).json({
+      message: "Incorrect email or password",
+    });
+  }
 
   if (user.role === "TECHNICIAN" && user.status !== "ACTIVE") {
-    return res.status(403).json({ message: "Account inactive" });
+    return res.status(403).json({
+      message: "Your account is inactive. Please contact administrator",
+    });
   }
 
   const token = jwt.sign(
@@ -27,7 +39,10 @@ exports.login = async (req, res) => {
     { expiresIn: "1d" },
   );
 
-  res.json({ token });
+  res.json({
+    message: "Login successful",
+    token,
+  });
 };
 
 exports.changePassword = async (req, res) => {

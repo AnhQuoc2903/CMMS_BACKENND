@@ -1,6 +1,8 @@
 const TenantRequest = require("../models/TenantRequest");
 const WorkOrder = require("../models/WorkOrder");
 const eventBus = require("../events/eventBus");
+const { sendCode } = require("../utils/sendCode");
+const emailTemplates = require("../events/emailTemplates");
 
 /* ======================================================
    TENANT SUBMIT
@@ -12,12 +14,21 @@ exports.submitTenantRequest = async (req, res) => {
     return res.status(400).json({ message: "Missing required fields" });
   }
 
+  // ✅ LẤY ẢNH TỪ CLOUDINARY
+  const images =
+    req.files?.map((file) => ({
+      url: file.path,
+    })) || [];
+
   const tr = await TenantRequest.create({
     title,
     description,
     tenantName,
     tenantEmail,
     status: "SUBMITTED",
+
+    // ✅ LƯU ẢNH
+    imageUrl: images,
   });
 
   eventBus.emit("TENANT_REQUEST_SUBMITTED", {
@@ -146,10 +157,21 @@ exports.rejectTenantRequest = async (req, res) => {
   tr.handledBy = req.user.id;
 
   await tr.save();
+
+  // ✅ SEND EMAIL TO TENANT
+  const email = emailTemplates.tenantRejected(tr);
+
+  await sendCode({
+    to: tr.tenantEmail,
+    subject: email.subject,
+    html: email.html,
+  });
+
   eventBus.emit("TENANT_REQUEST_REJECTED", {
     tenantRequest: tr,
     reason,
   });
+
   res.json(tr);
 };
 

@@ -2,7 +2,30 @@ const Asset = require("../models/Asset");
 const AssetLog = require("../models/AssetLog");
 const WorkOrder = require("../models/WorkOrder");
 
-exports.create = (req, res) => Asset.create(req.body).then((r) => res.json(r));
+exports.create = async (req, res) => {
+  try {
+    const { name, code, group, location } = req.body;
+
+    if (!name || !code) {
+      return res.status(400).json({
+        message: "Name and code are required",
+      });
+    }
+
+    const asset = await Asset.create({
+      name,
+      code,
+      group,
+      location,
+    });
+
+    res.status(201).json(asset);
+  } catch (err) {
+    res.status(500).json({
+      message: "Create asset failed",
+    });
+  }
+};
 
 // controllers/asset.controller.js
 exports.getAll = async (req, res) => {
@@ -23,7 +46,9 @@ exports.getAll = async (req, res) => {
     filter.status = status;
   }
 
-  const assets = await Asset.find(filter).sort({ createdAt: -1 });
+  const assets = await Asset.find(filter)
+    .populate("group", "name")
+    .sort({ createdAt: -1 });
   res.json(assets);
 };
 

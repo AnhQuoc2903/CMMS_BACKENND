@@ -41,5 +41,6 @@ app.use("/api/notifications", require("./routes/notification.routes"));
 app.get("/", (req, res) => {
   res.send("CMMS Backend is running 🚀");
 });
+app.use("/api/asset-groups", require("./routes/assetGroup.routes"));
 
 module.exports = app;

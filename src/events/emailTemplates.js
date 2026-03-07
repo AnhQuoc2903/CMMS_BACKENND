@@ -39,3 +39,18 @@ exports.tenantRequest = (tr) => ({
     <p>Email: ${tr.tenantEmail}</p>
   `,
 });
+
+exports.tenantRejected = (tr) => ({
+  subject: "[CMMS] Tenant Request Rejected",
+  html: `
+    <h3>Your request has been rejected</h3>
+    <p><b>${tr.title}</b></p>
+
+    <p><b>Tenant:</b> ${tr.tenantName}</p>
+
+    <p><b>Reason:</b></p>
+    <p style="color:red">${tr.rejectReason}</p>
+
+    <p>If you need more information please contact building management.</p>
+  `,
+});

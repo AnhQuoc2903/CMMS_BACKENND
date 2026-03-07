@@ -1,9 +1,19 @@
 const SparePart = require("../models/SparePart");
 const InventoryLog = require("../models/InventoryLog");
+const InventoryBatch = require("../models/InventoryBatch");
 
 /* ================= CREATE ================= */
 exports.create = async (req, res) => {
-  const { name, sku, quantity = 0, minStock } = req.body;
+  const {
+    name,
+    sku,
+    quantity = 0,
+    minStock,
+    parentPart,
+    specs,
+    inventoryMethod,
+    compatibleAssets,
+  } = req.body;
 
   if (!name) {
     return res.status(400).json({ message: "Name is required" });
@@ -18,23 +28,31 @@ exports.create = async (req, res) => {
     }
   }
 
-  // 1️⃣ CREATE SPARE PART
   const part = await SparePart.create({
     name,
     sku,
     quantity,
-    ...(minStock !== undefined && { minStock }),
+    minStock,
+    parentPart: parentPart || null,
+    specs: specs || [],
+    inventoryMethod: inventoryMethod || "FIFO",
+    compatibleAssets: compatibleAssets || [],
   });
 
-  // 2️⃣ LOG INITIAL STOCK (NẾU CÓ SỐ LƯỢNG)
   if (quantity > 0) {
+    await InventoryBatch.create({
+      sparePart: part._id,
+      quantity,
+      remaining: quantity,
+    });
+
     await InventoryLog.create({
       sparePart: part._id,
       type: "IN",
-      quantity: quantity,
+      quantity,
       beforeQty: 0,
       afterQty: quantity,
-      performedBy: req.user.id, // 👈 ai tạo
+      performedBy: req.user.id,
       note: "Initial stock",
     });
   }
@@ -50,20 +68,11 @@ exports.getAll = async (req, res) => {
     filter.status = status;
   }
 
-  const parts = await SparePart.find(filter).sort({ createdAt: -1 });
+  const parts = await SparePart.find(filter)
+    .populate("parentPart", "name")
+    .sort({ createdAt: -1 });
 
-  const result = parts.map((p) => ({
-    _id: p._id,
-    name: p.name,
-    sku: p.sku,
-    status: p.status,
-    quantity: p.quantity,
-    reservedQuantity: p.reservedQuantity || 0,
-    available: Math.max(p.quantity - (p.reservedQuantity || 0), 0), // ✅ QUAN TRỌNG
-    createdAt: p.createdAt,
-  }));
-
-  res.json(result);
+  res.json(parts);
 };
 
 /* ================= GET DETAIL ================= */
@@ -77,17 +86,30 @@ exports.getDetail = async (req, res) => {
 
 /* UPDATE (NO STATUS) */
 exports.update = async (req, res) => {
-  const { name, sku, minStock } = req.body;
+  const {
+    name,
+    sku,
+    minStock,
+    parentPart,
+    specs,
+    inventoryMethod,
+    compatibleAssets,
+  } = req.body;
 
-  const part = await SparePart.findByIdAndUpdate(
-    req.params.id,
-    { name, sku, minStock },
-    { new: true, runValidators: true }
-  );
+  const part = await SparePart.findById(req.params.id);
 
   if (!part) {
     return res.status(404).json({ message: "Spare part not found" });
   }
+
+  part.name = name ?? part.name;
+  part.sku = sku ?? part.sku;
+  part.minStock = minStock ?? part.minStock;
+  part.parentPart = parentPart ?? null;
+  part.specs = specs ?? [];
+  part.inventoryMethod = inventoryMethod ?? part.inventoryMethod;
+  part.compatibleAssets = compatibleAssets ?? part.compatibleAssets;
+  await part.save();
 
   res.json(part);
 };
@@ -127,9 +149,19 @@ exports.stockIn = async (req, res) => {
   }
 
   const before = part.quantity;
+
+  // update stock
   part.quantity += quantity;
   await part.save();
 
+  // create batch
+  await InventoryBatch.create({
+    sparePart: part._id,
+    quantity,
+    remaining: quantity,
+  });
+
+  // log
   await InventoryLog.create({
     sparePart: part._id,
     type: "IN",
@@ -156,4 +188,52 @@ exports.getLowStock = async (req, res) => {
   });
 
   res.json(parts);
+};
+
+exports.getPartTree = async (req, res) => {
+  const parts = await SparePart.find();
+
+  const map = {};
+
+  parts.forEach((p) => {
+    map[p._id] = { ...p.toObject(), children: [] };
+  });
+
+  const tree = [];
+
+  parts.forEach((p) => {
+    if (p.parentPart) {
+      map[p.parentPart]?.children.push(map[p._id]);
+    } else {
+      tree.push(map[p._id]);
+    }
+  });
+
+  res.json(tree);
+};
+
+exports.getBatches = async (req, res) => {
+  const batches = await InventoryBatch.find({
+    sparePart: req.params.id,
+  }).sort({ receivedAt: -1 });
+
+  res.json(batches);
+};
+
+exports.getPartsForAsset = async (req, res) => {
+  const parts = await SparePart.find({
+    compatibleAssets: req.params.assetId,
+  });
+
+  res.json(parts);
+};
+
+exports.getInventoryHistory = async (req, res) => {
+  const logs = await InventoryLog.find({
+    sparePart: req.params.id,
+  })
+    .populate("performedBy", "name")
+    .sort({ createdAt: -1 });
+
+  res.json(logs);
 };

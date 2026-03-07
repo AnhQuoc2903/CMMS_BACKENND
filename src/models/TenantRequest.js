@@ -10,6 +10,11 @@ module.exports = mongoose.model(
       tenantName: String,
       tenantEmail: String,
 
+      imageUrl: {
+        type: [{ url: String }],
+        default: [],
+      },
+
       status: {
         type: String,
         enum: [
@@ -47,6 +52,9 @@ module.exports = mongoose.model(
       workOrder: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "WorkOrder",
+      },
+      rejectReason: {
+        type: String,
       },
     },
     { timestamps: true },

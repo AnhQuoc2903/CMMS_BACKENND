@@ -4,40 +4,72 @@ function normalizeDate(d) {
   return x;
 }
 
-exports.calculateNextRun = (current, frequency) => {
+exports.calculateNextRun = (current, plan) => {
   const base = normalizeDate(current);
   const next = new Date(base);
 
-  switch (frequency) {
-    case "DAILY":
-      next.setDate(next.getDate() + 1);
-      break;
+  /* ===== STANDARD ===== */
 
-    case "WEEKLY":
-      next.setDate(next.getDate() + 7);
-      break;
+  if (plan.frequencyType === "STANDARD") {
+    switch (plan.frequency) {
+      case "DAILY":
+        next.setDate(next.getDate() + 1);
+        break;
 
-    case "MONTHLY": {
-      const day = next.getDate();
-      next.setDate(1); // tránh tràn
-      next.setMonth(next.getMonth() + 1);
+      case "WEEKLY":
+        next.setDate(next.getDate() + 7);
+        break;
 
-      const lastDay = new Date(
-        next.getFullYear(),
-        next.getMonth() + 1,
-        0
-      ).getDate();
+      case "MONTHLY": {
+        const day = next.getDate();
 
-      next.setDate(Math.min(day, lastDay));
-      break;
+        next.setDate(1);
+        next.setMonth(next.getMonth() + 1);
+
+        const lastDay = new Date(
+          next.getFullYear(),
+          next.getMonth() + 1,
+          0,
+        ).getDate();
+
+        next.setDate(Math.min(day, lastDay));
+        break;
+      }
+
+      case "YEARLY":
+        next.setFullYear(next.getFullYear() + 1);
+        break;
+
+      default:
+        next.setDate(next.getDate() + 1);
     }
+  }
 
-    case "YEARLY":
-      next.setFullYear(next.getFullYear() + 1);
-      break;
+  /* ===== INTERVAL ===== */
 
-    default:
-      next.setDate(next.getDate() + 1);
+  if (plan.frequencyType === "INTERVAL") {
+    const value = plan.intervalValue || 1;
+
+    switch (plan.intervalUnit) {
+      case "DAY":
+        next.setDate(next.getDate() + value);
+        break;
+
+      case "WEEK":
+        next.setDate(next.getDate() + value * 7);
+        break;
+
+      case "MONTH":
+        next.setMonth(next.getMonth() + value);
+        break;
+
+      case "YEAR":
+        next.setFullYear(next.getFullYear() + value);
+        break;
+
+      default:
+        next.setDate(next.getDate() + 1);
+    }
   }
 
   return next;

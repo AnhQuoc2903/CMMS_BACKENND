@@ -2,6 +2,7 @@ const r = require("express").Router();
 const auth = require("../middlewares/auth.middleware");
 const requireRole = require("../middlewares/role.middleware");
 const c = require("../controllers/tenantRequest.controller");
+const { uploadImage } = require("../config/cloudinary");
 
 /* ======================================================
    LIST (ADMIN / MANAGER)
@@ -16,7 +17,7 @@ r.get(
 /* ======================================================
    TENANT SUBMIT (PUBLIC)
 ====================================================== */
-r.post("/request", c.submitTenantRequest);
+r.post("/request", uploadImage.array("images", 5), c.submitTenantRequest);
 
 /* ======================================================
    FLOW CHUẨN
