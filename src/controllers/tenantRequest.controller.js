@@ -8,7 +8,7 @@ const emailTemplates = require("../events/emailTemplates");
    TENANT SUBMIT
 ====================================================== */
 exports.submitTenantRequest = async (req, res) => {
-  const { title, description, tenantName, tenantEmail } = req.body;
+  const { title, description, tenantName, tenantEmail, location } = req.body;
 
   if (!title || !tenantName || !tenantEmail) {
     return res.status(400).json({ message: "Missing required fields" });
@@ -25,6 +25,7 @@ exports.submitTenantRequest = async (req, res) => {
     description,
     tenantName,
     tenantEmail,
+    location,
     status: "SUBMITTED",
 
     // ✅ LƯU ẢNH
@@ -109,6 +110,7 @@ exports.finalApprove = async (req, res) => {
   const wo = await WorkOrder.create({
     title: tr.title,
     description: tr.description,
+    location: tr.location,
     createdBy: req.user.id,
     tenantRequest: tr._id,
     priority: "MEDIUM",

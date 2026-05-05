@@ -11,6 +11,10 @@ module.exports = mongoose.model(
         required: true,
       },
 
+      location: {
+        type: String,
+      },
+
       description: String,
 
       /* ===== CREATOR ===== */

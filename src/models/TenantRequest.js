@@ -10,6 +10,10 @@ module.exports = mongoose.model(
       tenantName: String,
       tenantEmail: String,
 
+      location: {
+        type: String,
+      },
+
       imageUrl: {
         type: [{ url: String }],
         default: [],

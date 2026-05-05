@@ -23,7 +23,24 @@ module.exports = mongoose.model(
       frequency: {
         type: String,
         enum: ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"],
-        required: true,
+        required: function () {
+          return this.frequencyType === "STANDARD";
+        },
+      },
+
+      intervalUnit: {
+        type: String,
+        enum: ["DAY", "WEEK", "MONTH"],
+        required: function () {
+          return this.frequencyType === "INTERVAL";
+        },
+      },
+
+      intervalValue: {
+        type: Number,
+        required: function () {
+          return this.frequencyType === "INTERVAL";
+        },
       },
 
       checklistTemplate: {

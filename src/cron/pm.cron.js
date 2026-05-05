@@ -13,24 +13,19 @@ const { assignAssetsToWorkOrder } = require("../utils/assetAssign.util");
 const BLOCKED_STATUSES = ["IN_USE", "MAINTENANCE"];
 
 /**
- * ⏰ Chạy mỗi ngày 01:00
+ * 🔥 RUN EVERY MINUTE (KHÔNG MISS JOB)
  */
-cron.schedule("0 1 * * *", async () => {
-  console.log("⏰ PM CRON RUN", new Date().toISOString());
-
+cron.schedule("* * * * *", async () => {
   const now = new Date();
+  console.log("⏱ PM CRON:", now.toISOString());
 
-  // 1️⃣ Lấy các plan đến hạn
   const plans = await MaintenancePlan.find({
     isActive: true,
     nextRunAt: { $lte: now },
   });
 
   for (const plan of plans) {
-    /**
-     * 🚫 2️⃣ CHẶN CHẠY NHIỀU LẦN TRONG CÙNG 1 NGÀY
-     * (DÙ SUCCESS HAY SKIPPED)
-     */
+    // ❌ tránh chạy nhiều lần trong cùng ngày
     if (
       plan.lastRunAt &&
       new Date(plan.lastRunAt).toDateString() === now.toDateString()
@@ -42,8 +37,10 @@ cron.schedule("0 1 * * *", async () => {
     session.startTransaction();
 
     try {
+      console.log("🚀 RUN PLAN:", plan.name);
+
       /**
-       * 🚦 3️⃣ CHECK ASSET BUSY
+       * 🚦 CHECK ASSET BUSY
        */
       const assets = await Asset.find({ _id: { $in: plan.assets } }, null, {
         session,
@@ -54,7 +51,7 @@ cron.schedule("0 1 * * *", async () => {
       );
 
       /**
-       * ⏭ 4️⃣ SKIPPED_ASSET_BUSY (CHỈ 1 LẦN / NGÀY)
+       * ⏭ SKIP nếu asset đang bận
        */
       if (blockedAssets.length > 0) {
         await MaintenancePlanLog.create(
@@ -64,7 +61,7 @@ cron.schedule("0 1 * * *", async () => {
               runAt: now,
               status: "SKIPPED_ASSET_BUSY",
               blockedAssets: blockedAssets.map((a) => a._id),
-              triggeredBy: null, // CRON
+              triggeredBy: null,
             },
           ],
           { session },
@@ -72,7 +69,10 @@ cron.schedule("0 1 * * *", async () => {
 
         plan.lastRunAt = now;
         plan.lastRunStatus = "SKIPPED_ASSET_BUSY";
-        plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan.frequency);
+
+        // ✅ FIX QUAN TRỌNG
+        plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan);
+
         await plan.save({ session });
 
         await session.commitTransaction();
@@ -81,12 +81,12 @@ cron.schedule("0 1 * * *", async () => {
       }
 
       /**
-       * 🔒 5️⃣ LOCK PLAN (ANTI DUPLICATE)
+       * 🔒 LOCK tránh duplicate
        */
       const locked = await MaintenancePlan.findOneAndUpdate(
         {
           _id: plan._id,
-          lastRunAt: { $ne: now },
+          lastRunAt: plan.lastRunAt,
         },
         {},
         { new: true, session },
@@ -99,7 +99,7 @@ cron.schedule("0 1 * * *", async () => {
       }
 
       /**
-       * 📄 6️⃣ CREATE WORK ORDER
+       * 📄 CREATE WORK ORDER
        */
       const [wo] = await WorkOrder.create(
         [
@@ -116,7 +116,7 @@ cron.schedule("0 1 * * *", async () => {
       );
 
       /**
-       * 🔥 7️⃣ ASSIGN ASSET → IN_USE + AssetLog
+       * 🔥 ASSIGN ASSET
        */
       await assignAssetsToWorkOrder({
         assetIds: plan.assets,
@@ -127,7 +127,7 @@ cron.schedule("0 1 * * *", async () => {
       });
 
       /**
-       * ✅ 8️⃣ SNAPSHOT CHECKLIST
+       * ✅ SNAPSHOT CHECKLIST
        */
       if (plan.checklistTemplate) {
         const tpl = await ChecklistTemplate.findById(
@@ -152,7 +152,7 @@ cron.schedule("0 1 * * *", async () => {
       }
 
       /**
-       * 🧾 9️⃣ LOG SUCCESS
+       * 🧾 LOG SUCCESS
        */
       await MaintenancePlanLog.create(
         [
@@ -167,9 +167,15 @@ cron.schedule("0 1 * * *", async () => {
         { session },
       );
 
+      /**
+       * 🔁 UPDATE PLAN
+       */
       plan.lastRunAt = now;
       plan.lastRunStatus = "SUCCESS";
-      plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan.frequency);
+
+      // ✅ FIX QUAN TRỌNG NHẤT
+      plan.nextRunAt = calculateNextRun(plan.nextRunAt, plan);
+
       await plan.save({ session });
 
       await session.commitTransaction();
