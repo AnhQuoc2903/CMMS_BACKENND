@@ -100,10 +100,53 @@ exports.update = async (req, res) => {
 
   if (name !== undefined) plan.name = name;
   if (assets !== undefined) plan.assets = assets;
-  if (frequencyType !== undefined) plan.frequencyType = frequencyType;
-  if (frequency !== undefined) plan.frequency = frequency;
-  if (intervalValue !== undefined) plan.intervalValue = intervalValue;
-  if (intervalUnit !== undefined) plan.intervalUnit = intervalUnit;
+
+  const finalFrequencyType =
+    frequencyType !== undefined ? frequencyType : plan.frequencyType;
+
+  plan.frequencyType = finalFrequencyType;
+
+  /**
+   * STANDARD
+   */
+  if (finalFrequencyType === "STANDARD") {
+    const finalFrequency = frequency !== undefined ? frequency : plan.frequency;
+
+    if (!finalFrequency) {
+      return res.status(400).json({
+        message: "Frequency required",
+      });
+    }
+
+    plan.frequency = finalFrequency;
+
+    // clear interval fields
+    plan.intervalUnit = undefined;
+    plan.intervalValue = undefined;
+  }
+
+  /**
+   * INTERVAL
+   */
+  if (finalFrequencyType === "INTERVAL") {
+    const finalIntervalValue =
+      intervalValue !== undefined ? intervalValue : plan.intervalValue;
+
+    const finalIntervalUnit =
+      intervalUnit !== undefined ? intervalUnit : plan.intervalUnit;
+
+    if (!finalIntervalValue || !finalIntervalUnit) {
+      return res.status(400).json({
+        message: "Interval configuration required",
+      });
+    }
+
+    plan.intervalValue = finalIntervalValue;
+    plan.intervalUnit = finalIntervalUnit;
+
+    // clear standard field
+    plan.frequency = undefined;
+  }
 
   if (checklistTemplate !== undefined)
     plan.checklistTemplate = checklistTemplate || null;
@@ -129,14 +172,6 @@ exports.runNow = async (req, res) => {
   /**
    * 🚫 1️⃣ CHẶN CHẠY LẠI TRONG CÙNG 1 NGÀY (DÙ SUCCESS HAY SKIPPED)
    */
-  if (
-    plan.lastRunAt &&
-    new Date(plan.lastRunAt).toDateString() === now.toDateString()
-  ) {
-    return res.status(400).json({
-      message: "Maintenance plan already ran today",
-    });
-  }
 
   /**
    * 🚦 2️⃣ CHECK ASSET BUSY
@@ -173,9 +208,13 @@ exports.runNow = async (req, res) => {
     const locked = await MaintenancePlan.findOneAndUpdate(
       {
         _id: plan._id,
-        lastRunAt: { $ne: now },
+        lastRunStatus: { $ne: "RUNNING" },
       },
-      {},
+      {
+        $set: {
+          lastRunStatus: "RUNNING",
+        },
+      },
       { new: true },
     );
 

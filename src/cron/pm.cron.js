@@ -26,12 +26,12 @@ cron.schedule("* * * * *", async () => {
 
   for (const plan of plans) {
     // ❌ tránh chạy nhiều lần trong cùng ngày
-    if (
-      plan.lastRunAt &&
-      new Date(plan.lastRunAt).toDateString() === now.toDateString()
-    ) {
-      continue;
-    }
+    // if (
+    //   plan.lastRunAt &&
+    //   new Date(plan.lastRunAt).toDateString() === now.toDateString()
+    // ) {
+    //   continue;
+    // }
 
     const session = await mongoose.startSession();
     session.startTransaction();
@@ -86,9 +86,13 @@ cron.schedule("* * * * *", async () => {
       const locked = await MaintenancePlan.findOneAndUpdate(
         {
           _id: plan._id,
-          lastRunAt: plan.lastRunAt,
+          lastRunStatus: { $ne: "RUNNING" },
         },
-        {},
+        {
+          $set: {
+            lastRunStatus: "RUNNING",
+          },
+        },
         { new: true, session },
       );
 

@@ -10,11 +10,8 @@ const emailTemplates = require("../events/emailTemplates");
 exports.submitTenantRequest = async (req, res) => {
   const { title, description, tenantName, tenantEmail, location } = req.body;
 
-  if (!title || !tenantName || !tenantEmail) {
-    return res.status(400).json({ message: "Missing required fields" });
-  }
+  const isLoggedIn = !!req.user;
 
-  // ✅ LẤY ẢNH TỪ CLOUDINARY
   const images =
     req.files?.map((file) => ({
       url: file.path,
@@ -23,17 +20,16 @@ exports.submitTenantRequest = async (req, res) => {
   const tr = await TenantRequest.create({
     title,
     description,
-    tenantName,
-    tenantEmail,
     location,
+    imageUrl: images,
     status: "SUBMITTED",
 
-    // ✅ LƯU ẢNH
-    imageUrl: images,
-  });
+    tenantId: isLoggedIn ? req.user.id : null,
+    source: isLoggedIn ? "TENANT" : "PUBLIC",
 
-  eventBus.emit("TENANT_REQUEST_SUBMITTED", {
-    tenantRequest: tr,
+    // 🔥 override nếu login
+    tenantName: isLoggedIn ? req.user.name : tenantName,
+    tenantEmail: isLoggedIn ? req.user.email : tenantEmail,
   });
 
   res.json(tr);
@@ -185,6 +181,14 @@ exports.getTenantRequests = async (req, res) => {
     .populate("handledBy", "name email")
     .populate("workOrder")
     .sort({ createdAt: -1 });
+
+  res.json(list);
+};
+
+exports.getMyRequests = async (req, res) => {
+  const list = await TenantRequest.find({
+    tenantId: req.user.id,
+  }).sort({ createdAt: -1 });
 
   res.json(list);
 };

@@ -31,6 +31,13 @@ module.exports = async () => {
       role: ROLES.TECHNICIAN,
       status: "ACTIVE",
     },
+    {
+      name: "Cafe ABC",
+      email: "cafeabc@gmail.com",
+      password: "123456",
+      role: ROLES.TENANT,
+      status: "ACTIVE",
+    },
   ];
 
   for (const u of users) {

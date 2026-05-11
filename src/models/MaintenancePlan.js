@@ -30,7 +30,7 @@ module.exports = mongoose.model(
 
       intervalUnit: {
         type: String,
-        enum: ["DAY", "WEEK", "MONTH"],
+        enum: ["DAY", "WEEK", "MONTH", "YEAR"],
         required: function () {
           return this.frequencyType === "INTERVAL";
         },

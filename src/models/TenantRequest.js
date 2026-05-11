@@ -19,6 +19,17 @@ module.exports = mongoose.model(
         default: [],
       },
 
+      tenantId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+      source: {
+        type: String,
+        enum: ["PUBLIC", "TENANT"],
+        default: "PUBLIC",
+      },
+
       status: {
         type: String,
         enum: [

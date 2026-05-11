@@ -35,7 +35,7 @@ exports.updateTechnician = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { name, email },
-    { new: true }
+    { new: true },
   );
 
   res.json(user);
@@ -45,7 +45,7 @@ exports.disableTechnician = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: "INACTIVE" },
-    { new: true }
+    { new: true },
   );
   res.json(user);
 };
@@ -54,7 +54,7 @@ exports.enableTechnician = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     req.params.id,
     { status: "ACTIVE" },
-    { new: true }
+    { new: true },
   );
   res.json(user);
 };
@@ -65,7 +65,7 @@ exports.disableTechnician = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     techId,
     { status: "INACTIVE" },
-    { new: true }
+    { new: true },
   );
 
   await AuditLog.create({
@@ -83,7 +83,7 @@ exports.enableTechnician = async (req, res) => {
   const user = await User.findByIdAndUpdate(
     techId,
     { status: "ACTIVE" },
-    { new: true }
+    { new: true },
   );
 
   await AuditLog.create({
