@@ -5,10 +5,7 @@ function normalizeDate(d) {
 }
 
 exports.calculateNextRun = (current, plan) => {
-  const base = normalizeDate(current);
-  const next = new Date(base);
-
-  /* ===== STANDARD ===== */
+  const next = new Date(current);
 
   if (plan.frequencyType === "STANDARD") {
     switch (plan.frequency) {
@@ -44,8 +41,6 @@ exports.calculateNextRun = (current, plan) => {
         next.setDate(next.getDate() + 1);
     }
   }
-
-  /* ===== INTERVAL ===== */
 
   if (plan.frequencyType === "INTERVAL") {
     const value = plan.intervalValue || 1;

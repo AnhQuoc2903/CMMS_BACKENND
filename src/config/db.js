@@ -1,9 +1,17 @@
 const mongoose = require("mongoose");
-const seed = require("./seed"); // 🔥 thêm
+const dns = require("dns");
 
-module.exports = async () => {
-  await mongoose.connect(process.env.MONGO_URI);
-  console.log("✅ MongoDB connected");
+dns.setServers(["1.1.1.1", "8.8.8.8"]);
 
-  await seed();
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI);
+
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error("❌ MongoDB connection failed:", err);
+    throw err;
+  }
 };
+
+module.exports = connectDB;
